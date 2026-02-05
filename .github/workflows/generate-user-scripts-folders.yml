@@ -1,0 +1,46 @@
+name: Generate User Scripts Plugin Folders
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '*.sh'
+      - 'README.md'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  generate-folders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Shallow clone for faster checkout
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'  # Use latest 3.x for faster setup
+          cache: 'pip'  # Cache pip dependencies if any
+      
+      - name: Generate User Scripts folders
+        run: |
+          python3 .github/scripts/generate_folders.py
+      
+      - name: Check for changes and commit
+        run: |
+          if [ -n "$(git status --porcelain user-scripts-folders/)" ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add user-scripts-folders/
+            git commit -m "Auto-generate User Scripts plugin folders [skip ci]"
+            git push
+          else
+            echo "No changes to commit"
+          fi

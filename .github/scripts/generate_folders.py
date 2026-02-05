@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""
+Generate User Scripts plugin folders for Unraid.
+Creates a folder structure compatible with the User Scripts plugin.
+Only regenerates folders for scripts that have changed.
+"""
+
+import os
+import re
+import shutil
+import hashlib
+from pathlib import Path
+
+# Mapping of script filenames to display names (folder names)
+SCRIPT_NAMES = {
+    'apply-unraid-perms.sh': 'Apply Unraid Permissions',
+    'btrfs-scrub.sh': 'Btrfs Scrub',
+    'check-plex-status.sh': 'Check Plex Status',
+    'clean-docker-log-size.sh': 'Clean Docker Log Size',
+    'clean-nzb-junk.sh': 'Clean NZB Junk',
+    'clear-movies-download-folder.sh': 'Clear Movies Download Folder',
+    'clear-plex-codecs.sh': 'Clear Plex Codecs',
+    'clear-torrent-download-folder.sh': 'Clear Torrent Download Folder',
+    'clear-tv-shows-download-folder.sh': 'Clear TV Shows Download Folder',
+    'delete-dangling-images.sh': 'Delete Dangling Images',
+    'remove-os-metadata.sh': 'Remove OS Metadata',
+    'out-of-memory-errors.sh': 'Out of Memory Errors',
+    'queue-sync-nzbget.sh': 'Queue Sync NZBGet',
+    'record-disk-assignments.sh': 'Record Disk Assignments',
+    'server-info-push.sh': 'Server Info Push',
+    'update-radarr-profiles.sh': 'Update Radarr Profiles',
+    'view-docker-log-size.sh': 'View Docker Log Size',
+}
+
+# Mapping of script filenames to descriptions (from README table)
+SCRIPT_DESCRIPTIONS = {
+    'apply-unraid-perms.sh': 'Applies Unraid-style "new permissions" (nobody:users, Docker-safe) to configured paths.',
+    'btrfs-scrub.sh': 'Runs a Btrfs scrub on a cache/device, logs output, and sends Unraid notifications on start/success/failure.',
+    'check-plex-status.sh': 'Checks if the Plex Docker container is running and if the web UI responds; restarts the container if the UI is unreachable.',
+    'clean-docker-log-size.sh': 'Truncates Docker container log files to free space in docker.img. Shows before/after sizes.',
+    'clean-nzb-junk.sh': 'Removes NZB download junk (nfo, par2, samples, RAR splits, etc.) and empty directories.',
+    'clear-movies-download-folder.sh': 'Empties the movies download directory and prints a summary.',
+    'clear-plex-codecs.sh': 'Deletes Plex Media Server codec cache (Plex re-downloads as needed).',
+    'clear-torrent-download-folder.sh': 'Empties the torrent download directory and prints a summary.',
+    'clear-tv-shows-download-folder.sh': 'Empties the TV shows download directory and prints a summary.',
+    'delete-dangling-images.sh': 'Removes Docker images with no tag (dangling) to free space in docker.img.',
+    'remove-os-metadata.sh': 'Removes macOS metadata files (.DS_Store, ._*, .Spotlight-V100, .Trashes, etc.) and Windows metadata files (Thumbs.db, desktop.ini, etc.).',
+    'out-of-memory-errors.sh': 'Checks syslog for "Out of memory" and sends an Unraid dynamix alert if found. Schedule (e.g. hourly).',
+    'queue-sync-nzbget.sh': 'Syncs Sonarr/Radarr queues with NZBGet: removes *arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.',
+    'record-disk-assignments.sh': 'Writes current Unraid disk assignments to /boot/config/DISK_ASSIGNMENTS.txt.',
+    'server-info-push.sh': 'Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Pushover or Pushbullet.',
+    'update-radarr-profiles.sh': 'Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.',
+    'view-docker-log-size.sh': 'Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.',
+}
+
+
+def sanitize_folder_name(name):
+    """Sanitize folder name for User Scripts plugin (only allow letters, digits, hyphens, underscores, colons, periods, spaces)."""
+    # Remove any characters that aren't allowed
+    sanitized = re.sub(r'[^A-Za-z0-9\-_:. ]', '', name)
+    return sanitized.strip()
+
+
+def parse_readme_descriptions():
+    """Parse README.md to extract script descriptions dynamically."""
+    readme_path = Path('README.md')
+    if not readme_path.exists():
+        return {}
+    
+    descriptions = {}
+    with open(readme_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Match table rows: | **script.sh** | Description... |
+    pattern = r'\|\s+\*\*([^\*]+\.sh)\*\*\s+\|\s+([^\|]+(?:\<br\>[^\|]+)*)'
+    matches = re.findall(pattern, content)
+    
+    for script_file, desc_html in matches:
+        # Remove HTML tags and clean up
+        desc = re.sub(r'<[^>]+>', '', desc_html)
+        desc = desc.strip()
+        # Remove config notes and emojis for cleaner description
+        desc = re.sub(r'📝.*$', '', desc, flags=re.MULTILINE)
+        desc = re.sub(r'📬.*$', '', desc, flags=re.MULTILINE)
+        desc = re.sub(r'🧪.*$', '', desc, flags=re.MULTILINE)
+        desc = re.sub(r'⚙️.*$', '', desc, flags=re.MULTILINE)
+        desc = re.sub(r'🔧.*$', '', desc, flags=re.MULTILINE)
+        desc = re.sub(r'✅.*$', '', desc, flags=re.MULTILINE)
+        # Clean up markdown escape sequences for plain text display
+        desc = desc.replace(r'\*', '*')  # Unescape asterisks
+        desc = desc.replace(r'\_', '_')   # Unescape underscores
+        desc = desc.strip()
+        descriptions[script_file] = desc
+    
+    return descriptions
+
+
+def get_file_hash(file_path):
+    """Get SHA256 hash of file content (optimized for large files)."""
+    if not file_path.exists():
+        return None
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        # Read in chunks to handle large files efficiently
+        for chunk in iter(lambda: f.read(8192), b''):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def main():
+    repo_root = Path('.')
+    output_dir = repo_root / 'user-scripts-folders'
+    
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(exist_ok=True)
+    
+    # Parse descriptions from README (fallback to hardcoded if parsing fails)
+    readme_descriptions = parse_readme_descriptions()
+    
+    # Get all .sh files in root
+    script_files = sorted(repo_root.glob('*.sh'))
+    
+    if not script_files:
+        print("No .sh files found in root directory")
+        return
+    
+    print(f"Found {len(script_files)} scripts")
+    
+    # Track which scripts exist
+    existing_folders = set()
+    updated_count = 0
+    skipped_count = 0
+    
+    # Pre-compute script hashes in one pass
+    script_hashes = {}
+    for script_path in script_files:
+        with open(script_path, 'rb') as f:
+            sha256 = hashlib.sha256()
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+            script_hashes[script_path.name] = sha256.hexdigest()
+    
+    for script_path in script_files:
+        script_file = script_path.name
+        
+        # Get display name (auto-generate for new scripts not in mapping)
+        display_name = SCRIPT_NAMES.get(script_file, script_file.replace('.sh', '').replace('-', ' ').title())
+        
+        # Get description (prefer README parsed, fallback to hardcoded)
+        description = readme_descriptions.get(script_file, SCRIPT_DESCRIPTIONS.get(script_file, 'Unraid user script'))
+        
+        # Sanitize folder name
+        folder_name = sanitize_folder_name(display_name)
+        folder_path = output_dir / folder_name
+        existing_folders.add(folder_name)
+        
+        # Get pre-computed hash
+        new_script_hash = script_hashes[script_file]
+        
+        # Check if update is needed (read content only if needed)
+        script_file_path = folder_path / 'script'
+        existing_script_hash = get_file_hash(script_file_path)
+        
+        # Check if update is needed
+        if not folder_path.exists():
+            needs_regenerate, reason = True, "new script"
+        elif existing_script_hash != new_script_hash:
+            needs_regenerate, reason = True, "script content changed"
+        else:
+            # Only check name/description if script hasn't changed
+            name_file_path = folder_path / 'name'
+            desc_file_path = folder_path / 'description'
+            needs_regenerate = False
+            
+            if name_file_path.exists():
+                with open(name_file_path, 'r', encoding='utf-8') as f:
+                    if f.read().strip() != display_name:
+                        needs_regenerate, reason = True, "name changed"
+            elif desc_file_path.exists():
+                with open(desc_file_path, 'r', encoding='utf-8') as f:
+                    if f.read().strip() != description:
+                        needs_regenerate, reason = True, "description changed"
+            
+            if not needs_regenerate:
+                reason = None
+        
+        if needs_regenerate:
+            # Read script content only when needed
+            with open(script_path, 'r', encoding='utf-8') as f:
+                script_content = f.read()
+        
+        if needs_regenerate:
+            # Create folder if it doesn't exist
+            folder_path.mkdir(exist_ok=True)
+            
+            # Write script file
+            script_file_path = folder_path / 'script'
+            with open(script_file_path, 'w', encoding='utf-8') as f:
+                f.write(script_content)
+            
+            # Write name file
+            name_file_path = folder_path / 'name'
+            with open(name_file_path, 'w', encoding='utf-8') as f:
+                f.write(display_name)
+            
+            # Write description file
+            desc_file_path = folder_path / 'description'
+            with open(desc_file_path, 'w', encoding='utf-8') as f:
+                f.write(description)
+            
+            print(f"✓ Updated folder: {folder_name} ({reason})")
+            updated_count += 1
+        else:
+            print(f"⊘ Skipped folder: {folder_name} (no changes)")
+            skipped_count += 1
+    
+    # Remove folders for scripts that no longer exist
+    if output_dir.exists():
+        for folder_path in output_dir.iterdir():
+            if folder_path.is_dir() and folder_path.name not in existing_folders:
+                shutil.rmtree(folder_path)
+                print(f"✗ Removed folder: {folder_path.name} (script deleted)")
+    
+    print(f"\nSummary: {updated_count} updated, {skipped_count} skipped, {len(existing_folders)} total folders")
+    print(f"\nGenerated User Scripts plugin folders in {output_dir}/")
+    print("\nTo use:")
+    print("1. Copy the folders from user-scripts-folders/ to /boot/config/plugins/user.scripts/scripts/ on your Unraid flash drive")
+    print("2. The scripts will appear in the User Scripts plugin with their names and descriptions")
+    print("3. Edit configuration in each script's 'script' file as needed")
+
+
+if __name__ == '__main__':
+    main()

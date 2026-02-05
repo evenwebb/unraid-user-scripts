@@ -1,0 +1,1 @@
+Syncs Sonarr/Radarr queues with NZBGet: removes *arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.

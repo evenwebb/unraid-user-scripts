@@ -1,0 +1,1 @@
+Checks syslog for "Out of memory" and sends an Unraid dynamix alert if found. Schedule (e.g. hourly).

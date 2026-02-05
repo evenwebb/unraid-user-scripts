@@ -1,0 +1,1 @@
+Checks if the Plex Docker container is running and if the web UI responds; restarts the container if the UI is unreachable.

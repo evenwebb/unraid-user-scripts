@@ -1,0 +1,1 @@
+Removes Docker images with no tag (dangling) to free space in docker.img.

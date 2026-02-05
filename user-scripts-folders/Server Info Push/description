@@ -1,0 +1,1 @@
+Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Pushover or Pushbullet.

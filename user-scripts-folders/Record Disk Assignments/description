@@ -1,0 +1,1 @@
+Writes current Unraid disk assignments to `/boot/config/DISK_ASSIGNMENTS.txt`.
