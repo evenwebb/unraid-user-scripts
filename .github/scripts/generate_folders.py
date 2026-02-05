@@ -14,7 +14,7 @@ from pathlib import Path
 # Mapping of script filenames to display names (folder names)
 SCRIPT_NAMES = {
     'apply-unraid-perms.sh': 'Apply Unraid Permissions',
-    'btrfs-scrub.sh': 'Btrfs Scrub',
+    'btrfs-scrub.sh': 'BTRFS Scrub',
     'check-plex-status.sh': 'Check Plex Status',
     'clean-docker-log-size.sh': 'Clean Docker Log Size',
     'clean-nzb-junk.sh': 'Clean NZB Junk',
