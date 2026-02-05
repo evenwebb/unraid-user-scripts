@@ -27,7 +27,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'  # Use latest 3.x for faster setup
-          cache: 'pip'  # Cache pip dependencies if any
       
       - name: Generate User Scripts folders
         run: |
@@ -39,8 +38,19 @@ jobs:
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
             git add user-scripts-folders/
+            if git diff --staged --quiet; then
+              echo "No changes to commit after git add"
+              exit 0
+            fi
             git commit -m "Auto-generate User Scripts plugin folders [skip ci]"
-            git push
+            git push origin main || {
+              echo "Push failed, attempting to pull and retry..."
+              git pull --rebase origin main || true
+              git push origin main || {
+                echo "Push failed after retry. This may indicate a conflict."
+                exit 1
+              }
+            }
           else
             echo "No changes to commit"
           fi
