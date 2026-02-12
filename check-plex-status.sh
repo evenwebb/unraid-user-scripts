@@ -14,7 +14,11 @@
 # Configuration:
 #   - PLEX_CONTAINER_NAME: Docker container name for Plex
 #   - PLEX_WEB_UI: Full URL to Plex web UI (used for connectivity check)
-#   - Optional: set PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN to enable notifications
+#   - PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN: Optional Pushover notification (both required)
+#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - RESTART_ONLY_IF_AUTOSTART: 1 = only restart if container has restart policy always/unless-stopped (skips when policy is "no")
+#
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -32,36 +36,61 @@ PLEX_WEB_UI="http://localhost:32400/web/index.html"
 PUSHOVER_USER_KEY=""
 PUSHOVER_APP_TOKEN=""
 
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
+
+# Optional: only restart if container has restart policy "always" or "unless-stopped"
+# When 1: skips restart if policy is "no" (container may be intentionally stopped)
+# When 0: always restart when UI is unreachable (default)
+RESTART_ONLY_IF_AUTOSTART=0
+
 # Timeout in seconds for web UI check
 CONNECT_TIMEOUT=15
 MAX_TIME=30
 
-# Check dependencies
-if ! command -v curl >/dev/null 2>&1; then
-    echo "Error: curl is required but not installed. Install with: apt-get install curl" >&2
-    exit 1
-fi
-if ! command -v docker >/dev/null 2>&1; then
-    echo "Error: docker is required but not installed." >&2
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    echo "Error: LOG_FILE path invalid." >&2
     exit 1
 fi
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
+log_err() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg" >&2
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
+}
+
+# Check dependencies
+if ! command -v curl &>/dev/null; then
+    log_err "curl is required but not installed. Install with: apt-get install curl"
+    exit 1
+fi
+if ! command -v docker &>/dev/null; then
+    log_err "docker is required but not installed."
+    exit 1
+fi
 
 send_pushover_notification() {
     local message="$1"
     [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
-    if ! command -v curl >/dev/null 2>&1; then
-        log "Warning: curl not found, Pushover notification skipped"
-        return 0
-    fi
     curl -s -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
         https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
 }
 
 main() {
+    if [[ -z "$PLEX_CONTAINER_NAME" ]]; then
+        log_err "PLEX_CONTAINER_NAME is empty."
+        return 1
+    fi
+    if [[ -z "$PLEX_WEB_UI" || ! "$PLEX_WEB_UI" =~ ^https?:// ]]; then
+        log_err "PLEX_WEB_UI must be a valid http(s) URL."
+        return 1
+    fi
+
     # Validate Pushover configuration (both or neither)
     if [[ -n "$PUSHOVER_APP_TOKEN" ]] && [[ -z "$PUSHOVER_USER_KEY" ]]; then
         log "Warning: PUSHOVER_APP_TOKEN is set but PUSHOVER_USER_KEY is missing. Notifications disabled."
@@ -70,6 +99,7 @@ main() {
         log "Warning: PUSHOVER_USER_KEY is set but PUSHOVER_APP_TOKEN is missing. Notifications disabled."
         PUSHOVER_USER_KEY=""
     fi
+
     if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF "$PLEX_CONTAINER_NAME"; then
         log "Plex container is not running. No action taken."
         return 0
@@ -82,8 +112,21 @@ main() {
         return 0
     fi
 
+    if [[ "$RESTART_ONLY_IF_AUTOSTART" == "1" ]]; then
+        local policy
+        policy=$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$PLEX_CONTAINER_NAME" 2>/dev/null || echo "no")
+        if [[ "$policy" != "always" && "$policy" != "unless-stopped" ]]; then
+            log "Plex web UI is not accessible but container has restart policy '$policy'. Skipping restart (may be intentionally stopped)."
+            return 0
+        fi
+    fi
+
     log "Plex web UI is not accessible. Restarting container..."
-    docker restart "$PLEX_CONTAINER_NAME"
+    if ! docker restart "$PLEX_CONTAINER_NAME"; then
+        log_err "docker restart failed for $PLEX_CONTAINER_NAME"
+        return 1
+    fi
+
     send_pushover_notification "Plex Docker container was restarted because the web UI was not accessible."
     log "Plex container restarted."
 }

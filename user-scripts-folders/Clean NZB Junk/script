@@ -9,22 +9,27 @@
 #
 # Usage:
 #   ./clean-nzb-junk.sh              # Run in production mode (deletes files)
-#   DEBUG=1 ./clean-nzb-junk.sh      # Dry-run mode (shows what would be deleted)
+#   Set DEBUG=1 in the script for dry-run mode (no deletions)
 #
 # Configuration:
-#   - Edit FOLDERS array below to set your download directories
-#   - Edit JUNK_EXTENSIONS to customize file patterns to remove
-#   - Set DEBUG=1 in the script for permanent dry-run mode
+#   - FOLDERS: Directories to clean
+#   - JUNK_EXTENSIONS: File patterns to remove
+#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - DEBUG: 1 for dry-run, 0 for production
+#
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #
 
-# Only exit on undefined variables, not on errors (more forgiving)
 set -u
 
 # DEBUG MODE: set to 1 for dry-run (no actual deletions), 0 for production
 DEBUG="0"
+
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
 
 # Directories to clean - EDIT THESE FOR YOUR SETUP
 FOLDERS=(
@@ -32,9 +37,9 @@ FOLDERS=(
     "/mnt/user/downloads/complete/movies"
 )
 
-# File extensions to remove (junk files) - EDIT TO CUSTOMIZE
+# File extensions to remove (junk files) - EDIT TO CUSTOMIZE (case insensitive)
 JUNK_EXTENSIONS=(
-    "*.nfo" "*.NFO"          # NFO info files
+    "*.nfo"                  # NFO info files
     "*.sfv" "*.srs" "*.srr"  # Verification files
     "*.nzb" "*.url"          # Download files
     "*.html" "*.htm"         # Web files
@@ -49,8 +54,27 @@ JUNK_EXTENSIONS=(
     ".DS_Store" "Thumbs.db"  # OS junk files
 )
 
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    echo "Error: LOG_FILE path invalid." >&2
+    exit 1
+fi
+if [[ -n "$LOG_FILE" ]]; then
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+    exec > >(tee -a "$LOG_FILE")
+fi
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+log_err() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+}
+
+# Validate path for safety (reject .. and - prefix)
+is_safe_path() {
+    local p="$1"
+    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    return 0
 }
 
 # Delete junk files by extension
@@ -73,18 +97,20 @@ delete_junk_files() {
 
         ((processed++)) || true
 
-        # Check if file matches any junk pattern
+        # Check if file matches any junk pattern (case insensitive)
+        local basename_lower="${basename,,}"
         for pattern in "${JUNK_EXTENSIONS[@]}"; do
             # Convert glob pattern to bash pattern matching
             pattern="${pattern#\*}"  # Remove leading *
+            local pattern_lower="${pattern,,}"
             # Handle RAR split files: .r[0-9] and .r[0-9][0-9] need regex matching
-            if [[ "$pattern" == ".r[0-9]" ]] || [[ "$pattern" == ".r[0-9][0-9]" ]]; then
+            if [[ "$pattern_lower" == ".r[0-9]" ]] || [[ "$pattern_lower" == ".r[0-9][0-9]" ]]; then
                 # Use regex to match .r followed by 1+ digits (handles .r0 through .r999+)
-                if [[ "$basename" =~ \.r[0-9]+$ ]]; then
+                if [[ "$basename_lower" =~ \.r[0-9]+$ ]]; then
                     matched=1
                     break
                 fi
-            elif [[ "$basename" == *"$pattern" ]] || [[ "$basename" == "$pattern" ]]; then
+            elif [[ "$basename_lower" == *"$pattern_lower" ]] || [[ "$basename_lower" == "$pattern_lower" ]]; then
                 matched=1
                 break
             fi
@@ -92,8 +118,7 @@ delete_junk_files() {
 
         if [[ $matched -eq 1 ]]; then
             if [[ "$DEBUG" == "1" ]]; then
-                # Only log in debug if verbose logging is needed - comment out for less spam
-                : # log "  Would delete: $file"
+                : # Quiet mode
             else
                 rm -f "$file"
             fi
@@ -104,7 +129,7 @@ delete_junk_files() {
         if (( processed % 100 == 0 )); then
             log "  Processed $processed files, found $count junk files so far..."
         fi
-    done < <(find "$dir" -xdev -type f -print0 2>&1 || true)
+    done < <(find "$dir" -xdev -type f -print0 2>/dev/null || true)
 
     log "Scanned $processed files, found $count junk file(s) to delete"
 }
@@ -120,7 +145,6 @@ delete_sample_files() {
 
     log "Scanning for sample files in: $dir"
 
-    # Find all files with "sample" in the name
     while IFS= read -r -d '' file; do
         local basename="${file##*/}"
         local name_no_ext="${basename%.*}"
@@ -128,14 +152,12 @@ delete_sample_files() {
 
         # Check if filename ends with "sample" or "sample" followed by digits
         if [[ "$name_lower" =~ sample[0-9]*$ ]]; then
-            if [[ "$DEBUG" == "1" ]]; then
-                : # Quiet mode
-            else
+            if [[ "$DEBUG" != "1" ]]; then
                 rm -f "$file"
             fi
             ((count++)) || true
         fi
-    done < <(find "$dir" -xdev -type f -iname "*sample*" -print0 2>&1 || true)
+    done < <(find "$dir" -xdev -type f -iname "*sample*" -print0 2>/dev/null || true)
 
     log "Found $count sample file(s)"
 }
@@ -152,13 +174,11 @@ delete_sample_dirs() {
     log "Scanning for sample directories in: $dir"
 
     while IFS= read -r -d '' sdir; do
-        if [[ "$DEBUG" == "1" ]]; then
-            : # Quiet mode
-        else
+        if [[ "$DEBUG" != "1" ]]; then
             rm -rf "$sdir"
         fi
         ((count++)) || true
-    done < <(find "$dir" -xdev -type d -iname "sample" -print0 2>&1 || true)
+    done < <(find "$dir" -xdev -type d -iname "sample" -print0 2>/dev/null || true)
 
     log "Found $count sample director(ies)"
 }
@@ -179,7 +199,7 @@ delete_empty_dirs() {
     if [[ "$DEBUG" == "1" ]]; then
         while IFS= read -r -d '' empty_dir; do
             ((total++)) || true
-        done < <(find "$dir" -xdev -type d -empty -print0 2>&1 || true)
+        done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
         log "Found $total empty director(ies) (would delete in non-debug mode)"
         return 0
     fi
@@ -191,7 +211,7 @@ delete_empty_dirs() {
 
         while IFS= read -r -d '' empty_dir; do
             rmdir "$empty_dir" 2>/dev/null && ((count++)) || true
-        done < <(find "$dir" -xdev -type d -empty -print0 2>&1 || true)
+        done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
 
         # Stop when no more empty dirs found
         [[ $count -eq 0 ]] && break
@@ -207,13 +227,20 @@ delete_empty_dirs() {
 main() {
     local start_time=$(date +%s)
 
-    if [[ "$DEBUG" == "1" ]]; then
-        log "Starting cleanup (DRY RUN - no deletions)"
-    else
-        log "Starting cleanup"
+    if [[ ${#FOLDERS[@]} -eq 0 ]]; then
+        log_err "FOLDERS is empty. Add at least one directory to clean."
+        return 1
     fi
 
     for folder in "${FOLDERS[@]}"; do
+        if ! is_safe_path "$folder"; then
+            log_err "Skipping unsafe path: $folder"
+            continue
+        fi
+        if [[ -z "$folder" ]]; then
+            log_err "Skipping empty folder entry."
+            continue
+        fi
         log "Processing: $folder"
         delete_junk_files "$folder"
         delete_sample_files "$folder"

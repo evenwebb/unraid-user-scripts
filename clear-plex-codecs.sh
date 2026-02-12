@@ -11,7 +11,9 @@
 #   ./clear-plex-codecs.sh
 #
 # Configuration:
-#   - TARGET: Path to Plex Media Server Codecs directory (edit for your appdata path)
+#   - PLEX_CODECS_PATH: Path to Plex Media Server Codecs directory (edit for your appdata path)
+#
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -21,16 +23,19 @@ set -u
 
 # Plex codecs directory - EDIT FOR YOUR SETUP (common Unraid path below)
 PLEX_CODECS_PATH="/mnt/user/appdata/plexmediaserver/Library/Application Support/Plex Media Server/Codecs"
-TARGET="$PLEX_CODECS_PATH"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+log_err() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
 }
 
 # Require path to look like a Plex appdata path to reduce accidental misuse
 is_safe_plex_codecs_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
     [[ "$p" == "/" ]] && return 1
     [[ "$p" == "/mnt" ]] && return 1
     [[ "$p" != *[Pp]lex* ]] && return 1
@@ -38,17 +43,17 @@ is_safe_plex_codecs_path() {
 }
 
 main() {
-    if [[ ! -d "$TARGET" ]]; then
-        log "Directory does not exist: $TARGET"
+    if ! is_safe_plex_codecs_path "$PLEX_CODECS_PATH"; then
+        log_err "Refusing to delete: path does not look like a Plex path (must contain 'plex'). Set PLEX_CODECS_PATH correctly."
         return 1
     fi
-    if ! is_safe_plex_codecs_path "$TARGET"; then
-        log "Refusing to delete: path does not look like a Plex path (must contain 'plex'). Set PLEX_CODECS_PATH correctly."
+    if [[ ! -d "$PLEX_CODECS_PATH" ]]; then
+        log_err "Directory does not exist: $PLEX_CODECS_PATH"
         return 1
     fi
 
-    log "Deleting all contents inside: $TARGET"
-    rm -rf "$TARGET"/* "$TARGET"/.[!.]* "$TARGET"/..?* 2>/dev/null || true
+    log "Deleting all contents inside: $PLEX_CODECS_PATH"
+    rm -rf "$PLEX_CODECS_PATH"/* "$PLEX_CODECS_PATH"/.[!.]* "$PLEX_CODECS_PATH"/..?* 2>/dev/null || true
     log "Deletion complete."
 }
 

@@ -13,6 +13,8 @@
 # Configuration:
 #   None required.
 #
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+#
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #
@@ -22,22 +24,33 @@ set -u
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+log_err() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+}
 
 main() {
     if ! command -v docker &>/dev/null; then
-        log "Docker not found or not in PATH."
+        log_err "Docker not found or not in PATH."
         return 1
     fi
+
     log "Removing dangling Docker images..."
     removed=$(docker images --quiet --filter "dangling=true" 2>/dev/null)
     if [[ -z "$removed" ]]; then
         log "No dangling images found."
         return 0
     fi
+
+    local count=0
     while IFS= read -r id; do
-        [[ -n "$id" ]] && docker rmi "$id" 2>/dev/null || true
+        if [[ -n "$id" ]]; then
+            if docker rmi "$id"; then
+                ((count++)) || true
+            fi
+        fi
     done <<< "$removed"
-    log "Finished. If errors appeared above, some images may have been in use."
+
+    log "Removed $count dangling image(s)."
 }
 
 main "$@"

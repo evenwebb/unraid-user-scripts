@@ -32,9 +32,13 @@
 #
 # Configuration:
 #   - SEARCH_PATHS: Directories to search (edit for your shares)
-#   - DELETE_MACOS_METADATA: Set to "true" to delete macOS files, "false" to skip (default: true)
-#   - DELETE_WINDOWS_METADATA: Set to "true" to delete Windows files, "false" to skip (default: true)
-#   - INCLUDE_RESOURCE_FORKS: Set to 1 to also delete ._* files (default: 0, can be large)
+#   - MAX_DEPTH: Maximum find depth (0 = unlimited, default 9999)
+#   - DELETE_MACOS_METADATA: "true" or "false" (default: true)
+#   - DELETE_WINDOWS_METADATA: "true" or "false" (default: true)
+#   - INCLUDE_RESOURCE_FORKS: 1 to delete ._* files (default: 0, can be large)
+#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -59,8 +63,31 @@ DELETE_WINDOWS_METADATA="true"
 # Delete ._* AppleDouble resource fork files (can be many files, set to 1 to enable)
 INCLUDE_RESOURCE_FORKS="0"
 
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
+
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    echo "Error: LOG_FILE path invalid." >&2
+    exit 1
+fi
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
+}
+log_err() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg" >&2
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
+}
+
+# Validate path for safety (reject .. and - prefix)
+is_safe_path() {
+    local p="$1"
+    [[ -z "$p" ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    return 0
 }
 
 main() {
@@ -68,17 +95,22 @@ main() {
 
     # Validate configuration
     if [[ "$DELETE_MACOS_METADATA" != "true" && "$DELETE_MACOS_METADATA" != "false" ]]; then
-        log "Error: DELETE_MACOS_METADATA must be 'true' or 'false'"
+        log_err "DELETE_MACOS_METADATA must be 'true' or 'false'"
         return 1
     fi
     if [[ "$DELETE_WINDOWS_METADATA" != "true" && "$DELETE_WINDOWS_METADATA" != "false" ]]; then
-        log "Error: DELETE_WINDOWS_METADATA must be 'true' or 'false'"
+        log_err "DELETE_WINDOWS_METADATA must be 'true' or 'false'"
         return 1
     fi
 
     if [[ "$DELETE_MACOS_METADATA" == "false" && "$DELETE_WINDOWS_METADATA" == "false" ]]; then
-        log "Both DELETE_MACOS_METADATA and DELETE_WINDOWS_METADATA are set to false. Nothing to delete. Exiting."
+        log "Both DELETE_MACOS_METADATA and DELETE_WINDOWS_METADATA are false. Nothing to delete."
         return 0
+    fi
+
+    if [[ ${#SEARCH_PATHS[@]} -eq 0 ]]; then
+        log_err "SEARCH_PATHS is empty."
+        return 1
     fi
 
     local os_types=""
@@ -87,6 +119,10 @@ main() {
     log "Searching for and deleting ${os_types} metadata files..."
 
     for base in "${SEARCH_PATHS[@]}"; do
+        if ! is_safe_path "$base"; then
+            log_err "Skipping unsafe path: $base"
+            continue
+        fi
         if [[ ! -d "$base" ]]; then
             log "Skipping $base (not found)"
             continue
@@ -106,17 +142,16 @@ main() {
                 -name ".VolumeIcon.icns" -o \
                 -name ".com.apple.timemachine.donotpresent" -o \
                 -name ".apdisk" \
-            \) -print0 2>/dev/null)
+            \) -print0 2>/dev/null || true)
 
             # Delete AppleDouble resource fork files (._*) if enabled
             if [[ "$INCLUDE_RESOURCE_FORKS" == "1" ]]; then
                 while IFS= read -r -d '' file; do
-                    # Match ._* but exclude ._.DS_Store (already handled above)
                     local basename="${file##*/}"
                     if [[ "$basename" == ._* ]] && [[ "$basename" != "._.DS_Store" ]]; then
                         rm -f "$file" 2>/dev/null && ((count++)) || true
                     fi
-                done < <(find "$base" -maxdepth "$MAX_DEPTH" -type f -name "._*" -print0 2>/dev/null)
+                done < <(find "$base" -maxdepth "$MAX_DEPTH" -type f -name "._*" -print0 2>/dev/null || true)
             fi
 
             # Delete macOS metadata directories
@@ -128,7 +163,7 @@ main() {
                 -name ".TemporaryItems" -o \
                 -name ".fseventsd" -o \
                 -name ".AppleDouble" \
-            \) -print0 2>/dev/null)
+            \) -print0 2>/dev/null || true)
         fi
 
         # Delete Windows metadata files if enabled
@@ -141,7 +176,7 @@ main() {
                 -name "ehthumbs.db" -o \
                 -name "ehthumbs_vista.db" -o \
                 -name "desktop.ini" \
-            \) -print0 2>/dev/null)
+            \) -print0 2>/dev/null || true)
         fi
 
         ((total_deleted += count))

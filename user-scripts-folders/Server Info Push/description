@@ -1,1 +1,1 @@
-Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Pushover or Pushbullet.
+Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Pushover or Pushbullet. Hides Docker section when Docker is not started.

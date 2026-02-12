@@ -13,6 +13,9 @@
 #
 # Configuration:
 #   - DOCKER_CONTAINERS_PATH: Path to Docker container data (default Unraid location)
+#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#
+# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -23,11 +26,26 @@ set -u
 # Docker containers directory - default Unraid location
 DOCKER_CONTAINERS_PATH="/var/lib/docker/containers"
 
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
+
 # Number of log entries to show in before/after listing
 HEAD_COUNT="60"
 
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    echo "Error: LOG_FILE path invalid." >&2
+    exit 1
+fi
+if [[ -n "$LOG_FILE" ]]; then
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+    exec > >(tee -a "$LOG_FILE")
+fi
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+log_err() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
 }
 
 list_docker_log_sizes() {
@@ -35,8 +53,20 @@ list_docker_log_sizes() {
 }
 
 main() {
+    if [[ "$DOCKER_CONTAINERS_PATH" == *".."* || "$DOCKER_CONTAINERS_PATH" == "-"* ]]; then
+        log_err "DOCKER_CONTAINERS_PATH invalid."
+        return 1
+    fi
+    if [[ -z "$DOCKER_CONTAINERS_PATH" ]]; then
+        log_err "DOCKER_CONTAINERS_PATH is empty."
+        return 1
+    fi
+    if [[ "$DOCKER_CONTAINERS_PATH" == /var/lib/docker* ]] && [[ $EUID -ne 0 ]]; then
+        log_err "This script must be run as root when using /var/lib/docker."
+        return 1
+    fi
     if [[ ! -d "$DOCKER_CONTAINERS_PATH" ]]; then
-        log "Directory not found: $DOCKER_CONTAINERS_PATH"
+        log_err "Directory not found: $DOCKER_CONTAINERS_PATH"
         return 1
     fi
 
@@ -47,7 +77,7 @@ main() {
     echo "====================================================================================================================================================================================="
     log "Truncating container logs..."
     while IFS= read -r -d '' logfile; do
-        [[ -f "$logfile" ]] && cat /dev/null > "$logfile"
+        [[ -f "$logfile" ]] && : > "$logfile"
     done < <(find "$DOCKER_CONTAINERS_PATH" -name '*.log' -print0 2>/dev/null)
     sleep 2
     log "Cleaning complete."
