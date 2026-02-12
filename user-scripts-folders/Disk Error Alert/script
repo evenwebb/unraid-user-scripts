@@ -143,7 +143,11 @@ main() {
         log "Matched: ${matched_patterns[*]}"
         if [[ -n "$NOTIFY_SCRIPT" ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
             local detail message
-            detail="$total_count disk/storage error(s) found in syslog. Check Tools > Diagnostics for details."
+            if [[ $total_count -eq 1 ]]; then
+                detail="1 disk/storage error found in syslog. Check Tools > Diagnostics for details."
+            else
+                detail="$total_count disk/storage errors found in syslog. Check Tools > Diagnostics for details."
+            fi
             message=$(printf '  • %s\n' "${matched_patterns[@]}")
             message="${message%$'\n'}"
             "$NOTIFY_SCRIPT" -e "Disk Error Alert" -s "Disk Storage Errors Detected" \
