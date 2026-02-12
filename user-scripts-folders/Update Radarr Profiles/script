@@ -13,7 +13,7 @@
 #   ./update-radarr-profiles.sh              # Live run
 #   Set DRY_RUN=1 in the script for dry run (no changes)
 #
-# Configuration (edit script variables below; no environment variables used):
+# Configuration (edit script variables below):
 #   - RADARR_URL, RADARR_API_KEY: Radarr base URL and API key
 #   - CURRENT_YEAR_PROFILE_ID, OLDER_MOVIES_PROFILE_ID: Quality profile IDs
 #   - PROCESS_CURRENT_YEAR, PROCESS_PREVIOUS_YEAR: "true" or "false"

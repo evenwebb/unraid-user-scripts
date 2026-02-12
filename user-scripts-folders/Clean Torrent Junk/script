@@ -1,14 +1,14 @@
 #!/bin/bash
 #
-# clean-nzb-junk.sh
-# Removes NZB download junk files and empty directories
+# clean-torrent-junk.sh
+# Removes torrent download junk files and empty directories
 #
 # Description:
-#   Cleans up common junk files left by NZB downloaders (nfo, par2, samples, etc.)
-#   and removes empty directories after cleanup.
+#   Cleans up common junk files left by torrent downloads (nfo, par2, samples,
+#   RAR splits, etc.) and removes empty directories after cleanup.
 #
 # Usage:
-#   ./clean-nzb-junk.sh              # Run in production mode (deletes files)
+#   ./clean-torrent-junk.sh              # Run in production mode (deletes files)
 #   Set DRY_RUN=1 in the script for dry-run mode (no deletions)
 #
 # Configuration (edit script variables below):
@@ -29,15 +29,16 @@ DRY_RUN="0"
 
 # Directories to clean - EDIT THESE FOR YOUR SETUP
 FOLDERS=(
-    "/mnt/user/downloads/complete/tv"
+    "/mnt/user/downloads/complete/torrents"
     "/mnt/user/downloads/complete/movies"
+    "/mnt/user/downloads/complete/tv"
 )
 
 # File extensions to remove (junk files) - EDIT TO CUSTOMIZE (case insensitive)
 JUNK_EXTENSIONS=(
     "*.nfo"                  # NFO info files
     "*.sfv" "*.srs" "*.srr"  # Verification files
-    "*.nzb" "*.url"          # Download files
+    "*.torrent" "*.url"      # Torrent/magnet files
     "*.html" "*.htm"         # Web files
     "*.log" "*.txt"          # Log/text files (BE CAREFUL - may remove wanted txt files)
     "*.par2" "*.vol*.par2"   # Parity files
@@ -47,7 +48,14 @@ JUNK_EXTENSIONS=(
     "*.exe" "*.com" "*.bat" "*.cmd" "*.scr" "*.dll"  # Windows executables
     "*.rar" "*.r[0-9]" "*.r[0-9][0-9]"  # RAR archives
     "*.zip" "*.7z"           # Other archives
-    ".DS_Store" "Thumbs.db"  # OS junk files
+    ".DS_Store" "Thumbs.db"   # OS junk files
+    "*.!ut" "*.!utpart"      # uTorrent incomplete
+    "*.bc!"                  # BitComet incomplete
+    "*.!qb"                  # qBittorrent incomplete
+    "*.!sync" "*.!bt"        # Resilio Sync / BitTorrent
+    "*.pad"                  # Padding files (often 0-byte)
+    "*.tmp" "*.temp"         # Temp files
+    "*.crc" "*.crc32"        # Checksum files
 )
 
 log() {
@@ -77,22 +85,17 @@ delete_junk_files() {
 
     log "Scanning for junk files in: $dir"
 
-    # Get all files, then filter in bash (single find per directory)
     while IFS= read -r -d '' file; do
         local basename="${file##*/}"
         local matched=0
 
         ((processed++)) || true
 
-        # Check if file matches any junk pattern (case insensitive)
         local basename_lower="${basename,,}"
         for pattern in "${JUNK_EXTENSIONS[@]}"; do
-            # Convert glob pattern to bash pattern matching
-            pattern="${pattern#\*}"  # Remove leading *
+            pattern="${pattern#\*}"
             local pattern_lower="${pattern,,}"
-            # Handle RAR split files: .r[0-9] and .r[0-9][0-9] need regex matching
             if [[ "$pattern_lower" == ".r[0-9]" ]] || [[ "$pattern_lower" == ".r[0-9][0-9]" ]]; then
-                # Use regex to match .r followed by 1+ digits (handles .r0 through .r999+)
                 if [[ "$basename_lower" =~ \.r[0-9]+$ ]]; then
                     matched=1
                     break
@@ -110,7 +113,6 @@ delete_junk_files() {
             ((count++)) || true
         fi
 
-        # Progress indicator every 100 files
         if (( processed % 100 == 0 )); then
             log "  Processed $processed files, found $count junk files so far..."
         fi
@@ -119,7 +121,7 @@ delete_junk_files() {
     log "Scanned $processed files, found $count junk file(s) to delete"
 }
 
-# Delete sample files (filename ends with "sample" or "sample[0-9]+" before extension)
+# Delete sample files
 delete_sample_files() {
     local dir="$1"
     local count=0
@@ -135,7 +137,6 @@ delete_sample_files() {
         local name_no_ext="${basename%.*}"
         local name_lower="${name_no_ext,,}"
 
-        # Check if filename ends with "sample" or "sample" followed by digits
         if [[ "$name_lower" =~ sample[0-9]*$ ]]; then
             if [[ "$DRY_RUN" != "1" ]]; then
                 rm -f "$file"
@@ -168,7 +169,7 @@ delete_sample_dirs() {
     log "Found $count sample director(ies)"
 }
 
-# Delete empty directories (run multiple times until no more found)
+# Delete empty directories
 delete_empty_dirs() {
     local dir="$1"
     local total=0
@@ -180,7 +181,6 @@ delete_empty_dirs() {
 
     log "Cleaning empty directories in: $dir"
 
-    # In DRY_RUN mode, just count once and exit
     if [[ "$DRY_RUN" == "1" ]]; then
         while IFS= read -r -d '' empty_dir; do
             ((total++)) || true
@@ -189,7 +189,6 @@ delete_empty_dirs() {
         return 0
     fi
 
-    # In production mode, keep removing until no more found
     while true; do
         local count=0
         ((pass++)) || true
@@ -198,7 +197,6 @@ delete_empty_dirs() {
             rmdir "$empty_dir" 2>/dev/null && ((count++)) || true
         done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
 
-        # Stop when no more empty dirs found
         [[ $count -eq 0 ]] && break
 
         ((total += count)) || true
@@ -208,7 +206,6 @@ delete_empty_dirs() {
     log "Removed $total empty director(ies) total"
 }
 
-# Main execution
 main() {
     local start_time=$(date +%s)
 

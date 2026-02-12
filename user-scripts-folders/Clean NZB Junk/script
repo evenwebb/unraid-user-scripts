@@ -9,15 +9,14 @@
 #
 # Usage:
 #   ./clean-nzb-junk.sh              # Run in production mode (deletes files)
-#   Set DEBUG=1 in the script for dry-run mode (no deletions)
+#   Set DRY_RUN=1 in the script for dry-run mode (no deletions)
 #
-# Configuration:
+# Configuration (edit script variables below):
 #   - FOLDERS: Directories to clean
 #   - JUNK_EXTENSIONS: File patterns to remove
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - DEBUG: 1 for dry-run, 0 for production
+#   - DRY_RUN: 1 for dry-run (no deletions), 0 for production
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+# Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -25,11 +24,8 @@
 
 set -u
 
-# DEBUG MODE: set to 1 for dry-run (no actual deletions), 0 for production
-DEBUG="0"
-
-# Optional: append logs to file (empty = stdout only)
-LOG_FILE=""
+# 1 = dry-run (no deletions), 0 = production
+DRY_RUN="0"
 
 # Directories to clean - EDIT THESE FOR YOUR SETUP
 FOLDERS=(
@@ -53,15 +49,6 @@ JUNK_EXTENSIONS=(
     "*.zip" "*.7z"           # Other archives
     ".DS_Store" "Thumbs.db"  # OS junk files
 )
-
-if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
-    exit 1
-fi
-if [[ -n "$LOG_FILE" ]]; then
-    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-    exec > >(tee -a "$LOG_FILE")
-fi
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -117,9 +104,7 @@ delete_junk_files() {
         done
 
         if [[ $matched -eq 1 ]]; then
-            if [[ "$DEBUG" == "1" ]]; then
-                : # Quiet mode
-            else
+            if [[ "$DRY_RUN" != "1" ]]; then
                 rm -f "$file"
             fi
             ((count++)) || true
@@ -152,7 +137,7 @@ delete_sample_files() {
 
         # Check if filename ends with "sample" or "sample" followed by digits
         if [[ "$name_lower" =~ sample[0-9]*$ ]]; then
-            if [[ "$DEBUG" != "1" ]]; then
+            if [[ "$DRY_RUN" != "1" ]]; then
                 rm -f "$file"
             fi
             ((count++)) || true
@@ -174,7 +159,7 @@ delete_sample_dirs() {
     log "Scanning for sample directories in: $dir"
 
     while IFS= read -r -d '' sdir; do
-        if [[ "$DEBUG" != "1" ]]; then
+        if [[ "$DRY_RUN" != "1" ]]; then
             rm -rf "$sdir"
         fi
         ((count++)) || true
@@ -195,8 +180,8 @@ delete_empty_dirs() {
 
     log "Cleaning empty directories in: $dir"
 
-    # In DEBUG mode, just count once and exit
-    if [[ "$DEBUG" == "1" ]]; then
+    # In DRY_RUN mode, just count once and exit
+    if [[ "$DRY_RUN" == "1" ]]; then
         while IFS= read -r -d '' empty_dir; do
             ((total++)) || true
         done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
@@ -227,6 +212,11 @@ delete_empty_dirs() {
 main() {
     local start_time=$(date +%s)
 
+    if [[ "$DRY_RUN" != "0" && "$DRY_RUN" != "1" ]]; then
+        log_err "DRY_RUN must be 0 or 1."
+        return 1
+    fi
+    [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no files or directories will be deleted"
     if [[ ${#FOLDERS[@]} -eq 0 ]]; then
         log_err "FOLDERS is empty. Add at least one directory to clean."
         return 1

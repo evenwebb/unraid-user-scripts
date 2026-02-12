@@ -1,0 +1,1 @@
+Checks syslog for md/storage errors and sends an Unraid dynamix alert if found. Schedule (e.g. hourly). Excludes common false positives (e.g. "no read error").

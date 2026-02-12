@@ -10,7 +10,7 @@
 # Usage:
 #   ./view-docker-log-size.sh
 #
-# Configuration (edit script variables below; no environment variables used):
+# Configuration (edit script variables below):
 #   - DOCKER_CONTAINERS_PATH: Path to Docker container data (default Unraid)
 #   - HEAD_COUNT: Number of lines to show (default 60)
 #
