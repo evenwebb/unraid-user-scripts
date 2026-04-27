@@ -1,0 +1,1199 @@
+#!/bin/bash
+#
+# radarr-language-guard.sh
+# Audits Radarr movie files for acceptable audio languages, then blocklists,
+# deletes, and re-searches bad releases.
+#
+# Description:
+#   Validates imported Radarr movie files using Radarr media-language metadata.
+#   For English-original movies, requires at least one English audio track.
+#   For non-English-original movies, allows either English or the original language.
+#   When a file is invalid, the script:
+#   - records a permanent script-level blacklist entry
+#   - attempts a Radarr blacklist for the original release when history exists
+#   - deletes the bad movie file through Radarr
+#   - triggers a targeted MoviesSearch replacement
+#
+# Usage:
+#   ./radarr-language-guard.sh              # Dry run by default
+#   Set DRY_RUN=0 in the script for live runs
+#
+# Configuration (edit script variables below):
+#   - RADARR_URL, RADARR_API_KEY: Radarr base URL and API key
+#   - STATE_FILE, LOG_FILE, LOCK_FILE: Persistent state/log paths and lock path
+#   - MAX_ACTIONS_PER_RUN, SEARCH_COOLDOWN_DAYS: Safety limits for batch runs
+#   - MOVIE_ID, MOVIE_FILTER: Optional targeting for testing
+#   - USE_FFPROBE_FALLBACK: 1 to use ffprobe when Radarr metadata is missing
+#
+# Logging (Unraid-friendly):
+#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
+#   - State is persisted in STATE_FILE to track blacklist entries and run stats.
+#   - When LOG_FILE is set, each log line is also appended to that file.
+#
+# Author: https://github.com/evenwebb
+# License: GPL-3.0
+#
+
+set -u
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Radarr - EDIT FOR YOUR SETUP
+RADARR_URL="${RADARR_URL:-}"       # e.g. http://192.168.1.10:7878 (no trailing slash)
+RADARR_API_KEY="${RADARR_API_KEY:-}"  # Settings -> General -> API Key
+
+DRY_RUN="${DRY_RUN:-1}"
+DEBUG="${DEBUG:-0}"
+USE_FFPROBE_FALLBACK="${USE_FFPROBE_FALLBACK:-0}"
+
+# Persistent files
+LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/radarr-language-guard.log}"
+STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/radarr-language-guard-state.json}"
+LOCK_FILE="${LOCK_FILE:-/tmp/radarr-language-guard.lock}"
+
+RATE_LIMIT_SECONDS="${RATE_LIMIT_SECONDS:-1}"
+MAX_ACTIONS_PER_RUN="${MAX_ACTIONS_PER_RUN:-25}"
+SEARCH_COOLDOWN_DAYS="${SEARCH_COOLDOWN_DAYS:-7}"
+
+# Optional targeting for tests / small batches
+MOVIE_ID="${MOVIE_ID:-}"
+MOVIE_FILTER="${MOVIE_FILTER:-}"
+
+# Optional maintenance toggles
+CLEAR_BLACKLIST="${CLEAR_BLACKLIST:-0}"
+BLACKLIST_DUMP="${BLACKLIST_DUMP:-0}"
+STATS_DUMP="${STATS_DUMP:-0}"
+FAST_DISCOVERY="${FAST_DISCOVERY:-1}"
+
+###############################################################################
+# Global counters
+###############################################################################
+
+FILES_SCANNED=0
+INVALID_FILES_FOUND=0
+VALID_FILES_KEPT=0
+SCRIPT_BLACKLIST_ADDITIONS=0
+SCRIPT_BLACKLIST_REPEAT_HITS=0
+RADARR_BLACKLIST_SUCCESSES=0
+RADARR_BLACKLIST_FAILURES=0
+FILES_DELETED=0
+SEARCHES_TRIGGERED=0
+SKIPPED_AMBIGUOUS=0
+SKIPPED_COOLDOWN=0
+SKIPPED_UNMONITORED=0
+API_FAILURES=0
+FFPROBE_FAILURES=0
+ACTION_COUNT=0
+MOVIES_SCANNED=0
+
+SEEN_FILE_ACTIONS=""
+SEEN_MOVIE_SEARCHES=""
+
+###############################################################################
+# Logging
+###############################################################################
+
+timestamp() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log_line() {
+  local level="$1"
+  shift
+  local msg="[$(timestamp)] [$level] $*"
+  echo "$msg"
+  if [[ -n "$LOG_FILE" ]]; then
+    printf '%s\n' "$msg" >> "$LOG_FILE"
+  fi
+}
+
+debug() {
+  if [[ "$DEBUG" == "1" ]]; then
+    log_line "DEBUG" "$*"
+  fi
+}
+
+set_has_line() {
+  local haystack="$1"
+  local needle="$2"
+  printf '%s\n' "$haystack" | grep -F -x -q "$needle"
+}
+
+set_add_line() {
+  local haystack="$1"
+  local needle="$2"
+  if set_has_line "$haystack" "$needle"; then
+    printf '%s' "$haystack"
+  elif [[ -z "$haystack" ]]; then
+    printf '%s' "$needle"
+  else
+    printf '%s\n%s' "$haystack" "$needle"
+  fi
+}
+
+###############################################################################
+# Dependency and environment handling
+###############################################################################
+
+require_cmd() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1 || {
+    log_line "ERROR" "Missing required command: $cmd"
+    exit 1
+  }
+}
+
+recover_stale_lock_if_needed() {
+  local pid_file lock_pid
+  pid_file="$LOCK_FILE/pid"
+
+  [[ -d "$LOCK_FILE" ]] || return 0
+
+  if [[ ! -f "$pid_file" ]]; then
+    log_line "WARN" "Recovering stale lock with missing pid file at $LOCK_FILE"
+    rm -rf "$LOCK_FILE" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  lock_pid="$(tr -dc '0-9' < "$pid_file" 2>/dev/null || true)"
+  if [[ -z "$lock_pid" ]]; then
+    log_line "WARN" "Recovering stale lock with invalid pid file at $LOCK_FILE"
+    rm -rf "$LOCK_FILE" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  if kill -0 "$lock_pid" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  log_line "WARN" "Recovering stale lock at $LOCK_FILE from dead pid=$lock_pid"
+  rm -rf "$LOCK_FILE" >/dev/null 2>&1 || true
+  return 0
+}
+
+acquire_lock() {
+  if [[ -d "$LOCK_FILE" ]] && ! recover_stale_lock_if_needed; then
+    log_line "ERROR" "Lock already held at $LOCK_FILE"
+    exit 1
+  fi
+
+  if mkdir "$LOCK_FILE" 2>/dev/null; then
+    printf '%s\n' "$$" > "$LOCK_FILE/pid"
+    trap 'release_lock' EXIT INT TERM
+  else
+    log_line "ERROR" "Lock already held at $LOCK_FILE"
+    exit 1
+  fi
+}
+
+release_lock() {
+  rm -rf "$LOCK_FILE" >/dev/null 2>&1 || true
+}
+
+###############################################################################
+# State management
+###############################################################################
+
+default_state_json() {
+  cat <<'JSON'
+{
+  "version": 1,
+  "blacklist": {},
+  "movies": {},
+  "stats": {
+    "totals": {
+      "live_runs": 0,
+      "files_scanned": 0,
+      "invalid_files_found": 0,
+      "files_deleted": 0,
+      "searches_triggered": 0,
+      "script_blacklist_additions": 0,
+      "script_blacklist_repeat_hits": 0,
+      "radarr_blacklist_successes": 0,
+      "radarr_blacklist_failures": 0,
+      "skipped_ambiguous": 0,
+      "skipped_cooldown": 0,
+      "skipped_unmonitored": 0,
+      "api_failures": 0,
+      "ffprobe_failures": 0
+    },
+    "runs": []
+  }
+}
+JSON
+}
+
+state_update() {
+  local filter="$1"
+  shift || true
+  local tmp
+  tmp="$(mktemp "${STATE_FILE}.tmp.XXXXXX")"
+  if jq "$@" "$filter" "$STATE_FILE" > "$tmp"; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+    log_line "ERROR" "Failed to update state"
+    exit 1
+  fi
+}
+
+init_state() {
+  local state_dir
+  state_dir="$(dirname "$STATE_FILE")"
+  mkdir -p "$state_dir"
+
+  if [[ ! -f "$STATE_FILE" ]]; then
+    default_state_json > "$STATE_FILE"
+    return
+  fi
+
+  if ! jq empty "$STATE_FILE" >/dev/null 2>&1; then
+    local backup="${STATE_FILE}.corrupt.$(date +%s)"
+    mv "$STATE_FILE" "$backup"
+    log_line "WARN" "Corrupt state file moved to $backup"
+    default_state_json > "$STATE_FILE"
+  fi
+
+  migrate_state
+}
+
+migrate_state() {
+  state_update '
+    .version = (.version // 1)
+    | .blacklist = (.blacklist // {})
+    | .movies = (.movies // {})
+    | .stats = (.stats // {})
+    | .stats.totals = ((.stats.totals // {}) + {
+        "live_runs": (.stats.totals.live_runs // 0),
+        "files_scanned": (.stats.totals.files_scanned // 0),
+        "invalid_files_found": (.stats.totals.invalid_files_found // 0),
+        "files_deleted": (.stats.totals.files_deleted // 0),
+        "searches_triggered": (.stats.totals.searches_triggered // 0),
+        "script_blacklist_additions": (.stats.totals.script_blacklist_additions // 0),
+        "script_blacklist_repeat_hits": (.stats.totals.script_blacklist_repeat_hits // 0),
+        "radarr_blacklist_successes": (.stats.totals.radarr_blacklist_successes // 0),
+        "radarr_blacklist_failures": (.stats.totals.radarr_blacklist_failures // 0),
+        "skipped_ambiguous": (.stats.totals.skipped_ambiguous // 0),
+        "skipped_cooldown": (.stats.totals.skipped_cooldown // 0),
+        "skipped_unmonitored": (.stats.totals.skipped_unmonitored // 0),
+        "api_failures": (.stats.totals.api_failures // 0),
+        "ffprobe_failures": (.stats.totals.ffprobe_failures // 0)
+      })
+    | .stats.runs = (.stats.runs // [])
+  '
+}
+
+clear_blacklist_state() {
+  state_update '.blacklist = {}'
+  log_line "INFO" "Cleared script-level blacklist"
+}
+
+dump_blacklist_state() {
+  jq '.blacklist' "$STATE_FILE"
+}
+
+dump_stats_state() {
+  jq '.stats' "$STATE_FILE"
+}
+
+###############################################################################
+# Radarr API helpers
+###############################################################################
+
+api_get() {
+  local path="$1"
+  curl -sS -m 60 \
+    -H "X-Api-Key: $RADARR_API_KEY" \
+    -H "Accept: application/json" \
+    "$RADARR_URL$path"
+}
+
+api_delete_status() {
+  local path="$1"
+  curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+    -X DELETE \
+    -H "X-Api-Key: $RADARR_API_KEY" \
+    "$RADARR_URL$path"
+}
+
+api_post_status() {
+  local path="$1"
+  local body="${2:-}"
+  if [[ -n "$body" ]]; then
+    curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+      -X POST \
+      -H "X-Api-Key: $RADARR_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d "$body" \
+      "$RADARR_URL$path"
+  else
+    curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+      -X POST \
+      -H "X-Api-Key: $RADARR_API_KEY" \
+      -H "Content-Length: 0" \
+      "$RADARR_URL$path"
+  fi
+}
+
+verify_radarr_connection() {
+  local payload
+  payload="$(api_get "/api/v3/system/status")" || {
+    log_line "ERROR" "Unable to reach Radarr at $RADARR_URL"
+    exit 1
+  }
+
+  if ! jq -e '.appName == "Radarr"' >/dev/null 2>&1 <<<"$payload"; then
+    log_line "ERROR" "Target is not Radarr or API key is invalid"
+    exit 1
+  fi
+}
+
+###############################################################################
+# Language normalization
+###############################################################################
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+normalize_release_title() {
+  local title
+  title="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  title="$(printf '%s' "$title" | sed -E 's/[^a-z0-9]+/./g; s/^\.//; s/\.$//; s/\.\.+/./g')"
+  printf '%s' "$title"
+}
+
+canonical_language() {
+  local raw
+  raw="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z]//g')"
+  case "$raw" in
+    en|eng|english) printf 'english' ;;
+    fr|fra|fre|french) printf 'french' ;;
+    de|deu|ger|german) printf 'german' ;;
+    it|ita|italian) printf 'italian' ;;
+    es|spa|spanish) printf 'spanish' ;;
+    pt|por|portuguese) printf 'portuguese' ;;
+    nl|dut|nld|dutch) printf 'dutch' ;;
+    no|nor|norwegian) printf 'norwegian' ;;
+    sv|swe|swedish) printf 'swedish' ;;
+    pl|pol|polish) printf 'polish' ;;
+    ru|rus|russian) printf 'russian' ;;
+    ar|ara|arabic) printf 'arabic' ;;
+    tr|tur|turkish) printf 'turkish' ;;
+    ja|jpn|japanese) printf 'japanese' ;;
+    ko|kor|korean) printf 'korean' ;;
+    is|ice|isl|icelandic) printf 'icelandic' ;;
+    he|heb|hebrew) printf 'hebrew' ;;
+    hu|hun|hungarian) printf 'hungarian' ;;
+    ca|cat|catalan) printf 'catalan' ;;
+    unknown|und) printf 'unknown' ;;
+    *) printf '%s' "$raw" ;;
+  esac
+}
+
+normalize_language_csv() {
+  local joined="$1"
+  python3 - "$joined" <<'PY'
+import re, sys
+joined = sys.argv[1]
+parts = re.split(r'[^A-Za-z]+', joined)
+parts = [p.strip().lower() for p in parts if p.strip()]
+print("\n".join(parts))
+PY
+}
+
+unique_lines() {
+  awk 'NF && !seen[$0]++'
+}
+
+get_ffprobe_languages() {
+  local path="$1"
+  ffprobe -v error -select_streams a \
+    -show_entries stream_tags=language \
+    -of default=noprint_wrappers=1:nokey=1 \
+    "$path" 2>/dev/null | unique_lines
+}
+
+extract_candidate_languages() {
+  local file_json="$1"
+  local radarr_langs radarr_audio ffprobe_langs path
+  radarr_langs="$(jq -r '(.languages // [])[]?.name // empty' <<<"$file_json" 2>/dev/null || true)"
+  radarr_audio="$(jq -r '.mediaInfo.audioLanguages // empty' <<<"$file_json" 2>/dev/null || true)"
+  path="$(jq -r '.path // empty' <<<"$file_json")"
+
+  {
+    if [[ -n "$radarr_langs" ]]; then
+      printf '%s\n' "$radarr_langs"
+    fi
+    if [[ -n "$radarr_audio" ]]; then
+      normalize_language_csv "$radarr_audio"
+    fi
+    if [[ "$USE_FFPROBE_FALLBACK" == "1" && -n "$path" && ( -z "$radarr_langs" ) && ( -z "$radarr_audio" || "$radarr_audio" == "null" ) ]]; then
+      if [[ -f "$path" ]]; then
+        ffprobe_langs="$(get_ffprobe_languages "$path" || true)"
+        if [[ -n "$ffprobe_langs" ]]; then
+          printf '%s\n' "$ffprobe_langs"
+        else
+          FFPROBE_FAILURES=$((FFPROBE_FAILURES + 1))
+        fi
+      else
+        FFPROBE_FAILURES=$((FFPROBE_FAILURES + 1))
+      fi
+    fi
+  } | while IFS= read -r lang; do
+    lang="$(trim "$lang")"
+    [[ -z "$lang" ]] && continue
+    canonical_language "$lang"
+    printf '\n'
+  done | unique_lines
+}
+
+language_list_contains() {
+  local wanted="$1"
+  shift
+  local item
+  for item in "$@"; do
+    [[ "$item" == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+###############################################################################
+# Movie and history helpers
+###############################################################################
+
+fetch_movies_payload() {
+  api_get "/api/v3/movie"
+}
+
+filter_movies_payload() {
+  local payload="$1"
+  jq -c \
+    --arg mid "$MOVIE_ID" \
+    --arg mfilter "$(printf '%s' "$MOVIE_FILTER" | tr '[:upper:]' '[:lower:]')" '
+      [
+        .[]
+        | select(($mid == "") or ((.id | tostring) == $mid))
+        | select(($mfilter == "") or ((.title | ascii_downcase) | contains($mfilter)))
+      ]
+    ' <<<"$payload"
+}
+
+fetch_history_for_movie() {
+  api_get "/api/v3/history?page=1&pageSize=1000&sortKey=date&sortDirection=descending"
+}
+
+epoch_now() {
+  date +%s
+}
+
+cooldown_seconds() {
+  printf '%s' "$(( SEARCH_COOLDOWN_DAYS * 86400 ))"
+}
+
+state_blacklist_has_key() {
+  local key="$1"
+  jq -e --arg k "$key" '.blacklist[$k] != null' "$STATE_FILE" >/dev/null 2>&1
+}
+
+state_add_blacklist_entry() {
+  local key="$1"
+  local key_type="$2"
+  local key_value="$3"
+  local movie_id="$4"
+  local movie_title="$5"
+  local source_title="$6"
+  local reason="$7"
+  local now
+  now="$(timestamp)"
+
+  if state_blacklist_has_key "$key"; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+      return
+    fi
+    state_update '.blacklist[$k].last_seen = $now | .blacklist[$k].hit_count = ((.blacklist[$k].hit_count // 0) + 1)' \
+      --arg k "$key" --arg now "$now"
+  else
+    if [[ "$DRY_RUN" == "1" ]]; then
+      SCRIPT_BLACKLIST_ADDITIONS=$((SCRIPT_BLACKLIST_ADDITIONS + 1))
+      return
+    fi
+    state_update '.blacklist[$k] = {
+      "key_type": $key_type,
+      "key_value": $key_value,
+      "first_seen": $now,
+      "last_seen": $now,
+      "movie_id": $movie_id,
+      "movie_title": $movie_title,
+      "example_source_title": $source_title,
+      "reason": $reason,
+      "hit_count": 1
+    }' \
+      --arg k "$key" \
+      --arg key_type "$key_type" \
+      --arg key_value "$key_value" \
+      --argjson movie_id "$movie_id" \
+      --arg movie_title "$movie_title" \
+      --arg source_title "$source_title" \
+      --arg reason "$reason" \
+      --arg now "$now"
+    SCRIPT_BLACKLIST_ADDITIONS=$((SCRIPT_BLACKLIST_ADDITIONS + 1))
+  fi
+}
+
+state_mark_movie_action() {
+  local movie_id="$1"
+  local status="$2"
+  local release_key="$3"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    return
+  fi
+  local now_epoch now_iso
+  now_epoch="$(epoch_now)"
+  now_iso="$(timestamp)"
+  state_update '.movies[$mid] = ((.movies[$mid] // {}) + {
+    "last_delete_epoch": (if $status == "deleted" then $now_epoch else (.movies[$mid].last_delete_epoch // 0) end),
+    "last_delete_iso": (if $status == "deleted" then $now_iso else (.movies[$mid].last_delete_iso // "") end),
+    "last_search_epoch": (if $status == "search_triggered" then $now_epoch else (.movies[$mid].last_search_epoch // 0) end),
+    "last_search_iso": (if $status == "search_triggered" then $now_iso else (.movies[$mid].last_search_iso // "") end),
+    "last_action_epoch": $now_epoch,
+    "last_action_iso": $now_iso,
+    "last_status": $status,
+    "last_release_key": $release_key,
+    "retry_count": ((.movies[$mid].retry_count // 0) + 1)
+  })' \
+    --arg mid "$movie_id" \
+    --arg status "$status" \
+    --arg release_key "$release_key" \
+    --argjson now_epoch "$now_epoch" \
+    --arg now_iso "$now_iso"
+}
+
+state_get_movie_last_action_epoch() {
+  local movie_id="$1"
+  jq -r --arg mid "$movie_id" '.movies[$mid].last_search_epoch // 0' "$STATE_FILE"
+}
+
+movie_in_cooldown() {
+  local movie_id="$1"
+  local last_epoch now
+  last_epoch="$(state_get_movie_last_action_epoch "$movie_id")"
+  now="$(epoch_now)"
+  [[ $(( now - last_epoch )) -lt $(cooldown_seconds) ]]
+}
+
+record_run_stats() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    return
+  fi
+
+  local now_iso scope_label blacklist_size movie_state_size
+  now_iso="$(timestamp)"
+
+  if [[ -n "$MOVIE_ID" ]]; then
+    scope_label="movie_id:$MOVIE_ID"
+  elif [[ -n "$MOVIE_FILTER" ]]; then
+    scope_label="movie_filter:$MOVIE_FILTER"
+  else
+    scope_label="library:all"
+  fi
+
+  blacklist_size="$(jq '.blacklist | length' "$STATE_FILE")"
+  movie_state_size="$(jq '.movies | length' "$STATE_FILE")"
+
+  state_update '
+    .stats.totals.live_runs += 1
+    | .stats.totals.files_scanned += $files_scanned
+    | .stats.totals.invalid_files_found += $invalid_files_found
+    | .stats.totals.files_deleted += $files_deleted
+    | .stats.totals.searches_triggered += $searches_triggered
+    | .stats.totals.script_blacklist_additions += $script_blacklist_additions
+    | .stats.totals.script_blacklist_repeat_hits += $script_blacklist_repeat_hits
+    | .stats.totals.radarr_blacklist_successes += $radarr_blacklist_successes
+    | .stats.totals.radarr_blacklist_failures += $radarr_blacklist_failures
+    | .stats.totals.skipped_ambiguous += $skipped_ambiguous
+    | .stats.totals.skipped_cooldown += $skipped_cooldown
+    | .stats.totals.skipped_unmonitored += $skipped_unmonitored
+    | .stats.totals.api_failures += $api_failures
+    | .stats.totals.ffprobe_failures += $ffprobe_failures
+    | .stats.runs += [{
+        "timestamp": $timestamp,
+        "scope": $scope,
+        "dry_run": false,
+        "files_scanned": $files_scanned,
+        "valid_files_kept": $valid_files_kept,
+        "invalid_files_found": $invalid_files_found,
+        "files_deleted": $files_deleted,
+        "searches_triggered": $searches_triggered,
+        "script_blacklist_additions": $script_blacklist_additions,
+        "script_blacklist_repeat_hits": $script_blacklist_repeat_hits,
+        "radarr_blacklist_successes": $radarr_blacklist_successes,
+        "radarr_blacklist_failures": $radarr_blacklist_failures,
+        "skipped_ambiguous": $skipped_ambiguous,
+        "skipped_cooldown": $skipped_cooldown,
+        "skipped_unmonitored": $skipped_unmonitored,
+        "api_failures": $api_failures,
+        "ffprobe_failures": $ffprobe_failures,
+        "blacklist_size": $blacklist_size,
+        "movie_state_size": $movie_state_size
+      }]
+    | .stats.runs |= (if length > 100 then .[-100:] else . end)
+  ' \
+    --arg timestamp "$now_iso" \
+    --arg scope "$scope_label" \
+    --argjson files_scanned "$FILES_SCANNED" \
+    --argjson valid_files_kept "$VALID_FILES_KEPT" \
+    --argjson invalid_files_found "$INVALID_FILES_FOUND" \
+    --argjson files_deleted "$FILES_DELETED" \
+    --argjson searches_triggered "$SEARCHES_TRIGGERED" \
+    --argjson script_blacklist_additions "$SCRIPT_BLACKLIST_ADDITIONS" \
+    --argjson script_blacklist_repeat_hits "$SCRIPT_BLACKLIST_REPEAT_HITS" \
+    --argjson radarr_blacklist_successes "$RADARR_BLACKLIST_SUCCESSES" \
+    --argjson radarr_blacklist_failures "$RADARR_BLACKLIST_FAILURES" \
+    --argjson skipped_ambiguous "$SKIPPED_AMBIGUOUS" \
+    --argjson skipped_cooldown "$SKIPPED_COOLDOWN" \
+    --argjson skipped_unmonitored "$SKIPPED_UNMONITORED" \
+    --argjson api_failures "$API_FAILURES" \
+    --argjson ffprobe_failures "$FFPROBE_FAILURES" \
+    --argjson blacklist_size "$blacklist_size" \
+    --argjson movie_state_size "$movie_state_size"
+}
+
+print_state_totals() {
+  if [[ ! -f "$STATE_FILE" ]]; then
+    return
+  fi
+
+  jq -r '
+    .stats.totals as $t |
+    "State totals:\n" +
+    "  Live runs: \($t.live_runs)\n" +
+    "  Files scanned: \($t.files_scanned)\n" +
+    "  Invalid files found: \($t.invalid_files_found)\n" +
+    "  Files deleted: \($t.files_deleted)\n" +
+    "  Searches triggered: \($t.searches_triggered)\n" +
+    "  Script blacklist additions: \($t.script_blacklist_additions)\n" +
+    "  Script blacklist repeat hits: \($t.script_blacklist_repeat_hits)\n" +
+    "  Radarr blacklist successes: \($t.radarr_blacklist_successes)\n" +
+    "  Radarr blacklist failures: \($t.radarr_blacklist_failures)"
+  ' "$STATE_FILE"
+}
+
+###############################################################################
+# Radarr destructive actions
+###############################################################################
+
+delete_movie_file() {
+  local file_id="$1"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_line "INFO" "DRY_RUN delete movie file id=$file_id"
+    return 0
+  fi
+
+  local code
+  code="$(api_delete_status "/api/v3/moviefile/${file_id}")" || code="000"
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    FILES_DELETED=$((FILES_DELETED + 1))
+    return 0
+  fi
+
+  API_FAILURES=$((API_FAILURES + 1))
+  log_line "WARN" "Failed to delete movie file id=$file_id http=$code"
+  return 1
+}
+
+search_movie() {
+  local movie_id="$1"
+  local body
+  body="$(jq -cn --argjson ids "[$movie_id]" '{name:"MoviesSearch", movieIds:$ids}')"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_line "INFO" "DRY_RUN trigger movie search ids=[$movie_id]"
+    return 0
+  fi
+
+  local code
+  code="$(api_post_status "/api/v3/command" "$body")" || code="000"
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    SEARCHES_TRIGGERED=$((SEARCHES_TRIGGERED + 1))
+    return 0
+  fi
+
+  API_FAILURES=$((API_FAILURES + 1))
+  log_line "WARN" "Failed to trigger movie search http=$code id=[$movie_id]"
+  return 1
+}
+
+attempt_radarr_blacklist() {
+  local history_id="$1"
+  local source_title="$2"
+  if [[ -z "$history_id" || "$history_id" == "null" ]]; then
+    RADARR_BLACKLIST_FAILURES=$((RADARR_BLACKLIST_FAILURES + 1))
+    log_line "WARN" "radarr_blacklist_failed no_history_id source=$source_title"
+    return 1
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_line "INFO" "DRY_RUN Radarr blacklist history_id=$history_id source=$source_title"
+    return 0
+  fi
+
+  local code
+  code="$(api_post_status "/api/v3/history/failed/${history_id}")" || code="000"
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    RADARR_BLACKLIST_SUCCESSES=$((RADARR_BLACKLIST_SUCCESSES + 1))
+    return 0
+  fi
+
+  RADARR_BLACKLIST_FAILURES=$((RADARR_BLACKLIST_FAILURES + 1))
+  log_line "WARN" "radarr_blacklist_failed history_id=$history_id http=$code source=$source_title"
+  return 1
+}
+
+###############################################################################
+# History resolution
+###############################################################################
+
+find_matching_history() {
+  local movie_id="$1"
+  local file_id="$2"
+  local path="$3"
+  local scene_name="$4"
+  local history
+
+  history="$(fetch_history_for_movie "$movie_id")" || {
+    API_FAILURES=$((API_FAILURES + 1))
+    printf '{}'
+    return
+  }
+
+  jq -c \
+    --argjson file_id "$file_id" \
+    --arg path "$path" \
+    --arg scene_name "$scene_name" '
+      .records
+      | (
+          map(select(.data.fileId? == ($file_id|tostring) or .data.fileId? == $file_id or .data.movieFileId? == ($file_id|tostring) or .data.movieFileId? == $file_id))
+          + map(select(.data.importedPath? == $path))
+          + map(select(.sourceTitle? == $scene_name))
+        )
+      | unique_by(.id)
+      | sort_by(.date)
+      | reverse
+      | {
+          imported: (map(select(.eventType == "downloadFolderImported"))[0] // null),
+          grabbed: (map(select(.eventType == "grabbed"))[0] // null)
+        }
+    ' <<<"$history"
+}
+
+resolve_release_identity() {
+  local history_json="$1"
+  local fallback_title="$2"
+  jq -c --arg fallback_title "$fallback_title" '
+    .imported as $imported
+    | .grabbed as $grabbed
+    | {
+        history_id: ($grabbed.id // $imported.id // null),
+        guid: ($grabbed.data.guid // $imported.data.guid // null),
+        source_title: ($grabbed.sourceTitle // $imported.sourceTitle // $fallback_title),
+        imported_event_id: ($imported.id // null),
+        grabbed_event_id: ($grabbed.id // null)
+      }
+  ' <<<"$history_json"
+}
+
+###############################################################################
+# Main processing
+###############################################################################
+
+process_invalid_file() {
+  local movie_json="$1"
+  local file_json="$2"
+  local reason="$3"
+  local detected_langs="$4"
+
+  local movie_id movie_title file_id path scene_name monitored history_json identity_json
+  local guid source_title normalized_title primary_key secondary_key blacklist_repeat="0" release_key=""
+  local history_id
+
+  movie_id="$(jq -r '.id' <<<"$movie_json")"
+  movie_title="$(jq -r '.title' <<<"$movie_json")"
+  monitored="$(jq -r '.monitored // false' <<<"$movie_json")"
+  file_id="$(jq -r '.id' <<<"$file_json")"
+  path="$(jq -r '.path // empty' <<<"$file_json")"
+  scene_name="$(jq -r '.sceneName // empty' <<<"$file_json")"
+
+  INVALID_FILES_FOUND=$((INVALID_FILES_FOUND + 1))
+
+  if [[ "$monitored" != "true" ]]; then
+    SKIPPED_UNMONITORED=$((SKIPPED_UNMONITORED + 1))
+    log_line "INFO" "skip_unmonitored movie=\"$movie_title\" file_id=$file_id"
+    return
+  fi
+
+  if movie_in_cooldown "$movie_id"; then
+    SKIPPED_COOLDOWN=$((SKIPPED_COOLDOWN + 1))
+    log_line "INFO" "skip_cooldown movie=\"$movie_title\" movie_id=$movie_id file_id=$file_id"
+    return
+  fi
+
+  history_json="$(find_matching_history "$movie_id" "$file_id" "$path" "$scene_name")"
+  identity_json="$(resolve_release_identity "$history_json" "$scene_name")"
+  guid="$(jq -r '.guid // empty' <<<"$identity_json")"
+  source_title="$(jq -r '.source_title // empty' <<<"$identity_json")"
+  history_id="$(jq -r '.history_id // empty' <<<"$identity_json")"
+  normalized_title="$(normalize_release_title "${source_title:-${scene_name:-$(basename "$path")}}")"
+
+  if [[ -n "$guid" ]]; then
+    primary_key="guid:$guid"
+    release_key="$primary_key"
+  else
+    primary_key=""
+  fi
+
+  secondary_key="title:$normalized_title"
+  [[ -z "$release_key" ]] && release_key="$secondary_key"
+
+  if [[ -n "$primary_key" ]] && state_blacklist_has_key "$primary_key"; then
+    blacklist_repeat="1"
+  elif state_blacklist_has_key "$secondary_key"; then
+    blacklist_repeat="1"
+  fi
+
+  if [[ "$blacklist_repeat" == "1" ]]; then
+    SCRIPT_BLACKLIST_REPEAT_HITS=$((SCRIPT_BLACKLIST_REPEAT_HITS + 1))
+    log_line "WARN" "blacklist_repeat movie=\"$movie_title\" file_id=$file_id release=\"$source_title\""
+  fi
+
+  if [[ -n "$primary_key" ]]; then
+    state_add_blacklist_entry "$primary_key" "guid" "$guid" "$movie_id" "$movie_title" "${source_title:-$scene_name}" "$reason"
+  fi
+  state_add_blacklist_entry "$secondary_key" "title" "$normalized_title" "$movie_id" "$movie_title" "${source_title:-$scene_name}" "$reason"
+
+  log_line "INFO" "invalid_file movie=\"$movie_title\" movie_id=$movie_id file_id=$file_id path=\"$path\" detected_languages=\"${detected_langs//$'\n'/,}\" reason=\"$reason\" source_title=\"${source_title:-$scene_name}\""
+
+  attempt_radarr_blacklist "$history_id" "${source_title:-$scene_name}" || true
+
+  if (( ACTION_COUNT >= MAX_ACTIONS_PER_RUN )); then
+    log_line "INFO" "max_actions_reached count=$ACTION_COUNT"
+    return
+  fi
+
+  if set_has_line "$SEEN_FILE_ACTIONS" "$file_id"; then
+    debug "File already handled in this run file_id=$file_id"
+    return
+  fi
+
+  if delete_movie_file "$file_id"; then
+    SEEN_FILE_ACTIONS="$(set_add_line "$SEEN_FILE_ACTIONS" "$file_id")"
+    ACTION_COUNT=$((ACTION_COUNT + 1))
+    state_mark_movie_action "$movie_id" "deleted" "$release_key"
+    sleep "$RATE_LIMIT_SECONDS"
+
+    if ! set_has_line "$SEEN_MOVIE_SEARCHES" "$movie_id"; then
+      if search_movie "$movie_id"; then
+        state_mark_movie_action "$movie_id" "search_triggered" "$release_key"
+      fi
+      SEEN_MOVIE_SEARCHES="$(set_add_line "$SEEN_MOVIE_SEARCHES" "$movie_id")"
+    fi
+  fi
+}
+
+process_invalid_candidate() {
+  local candidate_json="$1"
+  local movie_json file_json reason detected_langs
+
+  reason="$(jq -r '.reason' <<<"$candidate_json")"
+  detected_langs="$(jq -r '.detected_languages | join(",")' <<<"$candidate_json")"
+
+  movie_json="$(jq -c '{
+    id: .movie_id,
+    title: .movie_title,
+    monitored: .monitored
+  }' <<<"$candidate_json")"
+
+  file_json="$(jq -c '{
+    id: .file_id,
+    path: .path,
+    sceneName: (.scene_name // "")
+  }' <<<"$candidate_json")"
+
+  process_invalid_file "$movie_json" "$file_json" "$reason" "$detected_langs"
+}
+
+process_movie() {
+  local movie_json="$1"
+  local file_json
+  local original_language raw_langs
+  local detected_langs=()
+  local acceptable_langs=()
+  local lang
+
+  file_json="$(jq -c '.movieFile // {}' <<<"$movie_json")"
+  if [[ "$(jq -r 'has("id")' <<<"$file_json")" != "true" ]]; then
+    return
+  fi
+
+  FILES_SCANNED=$((FILES_SCANNED + 1))
+  if (( FILES_SCANNED % 250 == 0 )); then
+    log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
+  fi
+
+  if [[ "$(jq -r '.monitored // false' <<<"$movie_json")" != "true" ]]; then
+    SKIPPED_UNMONITORED=$((SKIPPED_UNMONITORED + 1))
+    return
+  fi
+
+  original_language="$(jq -r '.originalLanguage.name // empty' <<<"$movie_json" | while IFS= read -r l; do canonical_language "$l"; done)"
+
+  while IFS= read -r lang; do
+    [[ -n "$lang" ]] && detected_langs+=("$lang")
+  done < <(extract_candidate_languages "$file_json")
+
+  if [[ ${#detected_langs[@]} -eq 0 ]]; then
+    SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
+    log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq -r '.id' <<<"$movie_json") path=\"$(jq -r '.path // empty' <<<"$file_json")\""
+    return
+  fi
+
+  acceptable_langs=("english")
+  if [[ -n "$original_language" && "$original_language" != "english" ]]; then
+    acceptable_langs+=("$original_language")
+  fi
+
+  for lang in "${detected_langs[@]}"; do
+    if language_list_contains "$lang" "${acceptable_langs[@]}"; then
+      VALID_FILES_KEPT=$((VALID_FILES_KEPT + 1))
+      debug "keep_file movie_id=$(jq -r '.id' <<<"$movie_json") acceptable_language=$lang"
+      return
+    fi
+  done
+
+  local reason
+  if [[ "$original_language" == "english" || -z "$original_language" ]]; then
+    reason="missing_english_audio"
+  else
+    reason="missing_english_and_original_audio"
+  fi
+
+  raw_langs="$(printf '%s\n' "${detected_langs[@]}" | paste -sd ',' -)"
+  process_invalid_file "$movie_json" "$file_json" "$reason" "$raw_langs"
+}
+
+discover_candidates_fast() {
+  RADARR_URL="$RADARR_URL" \
+  RADARR_API_KEY="$RADARR_API_KEY" \
+  MOVIE_ID="$MOVIE_ID" \
+  MOVIE_FILTER="$MOVIE_FILTER" \
+  python3 - <<'PY'
+import json, os, re, urllib.request
+
+RADARR_URL = os.environ["RADARR_URL"].rstrip("/")
+API_KEY = os.environ["RADARR_API_KEY"]
+MOVIE_ID = os.environ.get("MOVIE_ID", "")
+MOVIE_FILTER = os.environ.get("MOVIE_FILTER", "").lower()
+
+def api_get(path):
+    req = urllib.request.Request(
+        f"{RADARR_URL}{path}",
+        headers={"X-Api-Key": API_KEY, "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.load(r)
+
+def canon(raw):
+    raw = re.sub(r"[^a-z]", "", str(raw).lower())
+    mapping = {
+        "en": "english", "eng": "english", "english": "english",
+        "fr": "french", "fra": "french", "fre": "french", "french": "french",
+        "de": "german", "deu": "german", "ger": "german", "german": "german",
+        "it": "italian", "ita": "italian", "italian": "italian",
+        "es": "spanish", "spa": "spanish", "spanish": "spanish",
+        "nl": "dutch", "dut": "dutch", "nld": "dutch", "dutch": "dutch",
+        "ru": "russian", "rus": "russian", "russian": "russian",
+        "pl": "polish", "pol": "polish", "polish": "polish",
+        "tr": "turkish", "tur": "turkish", "turkish": "turkish",
+        "is": "icelandic", "ice": "icelandic", "isl": "icelandic", "icelandic": "icelandic",
+    }
+    return mapping.get(raw, raw)
+
+def audio_langs(file_obj):
+    found = []
+    for lang in file_obj.get("languages", []) or []:
+        value = canon(lang.get("name", ""))
+        if value and value not in found:
+            found.append(value)
+    audio = ((file_obj.get("mediaInfo") or {}).get("audioLanguages") or "").strip()
+    if audio:
+        for part in re.split(r"[^A-Za-z]+", audio):
+            value = canon(part)
+            if value and value not in found:
+                found.append(value)
+    return found
+
+movies = api_get("/api/v3/movie")
+if MOVIE_ID:
+    movies = [m for m in movies if str(m.get("id")) == MOVIE_ID]
+if MOVIE_FILTER:
+    movies = [m for m in movies if MOVIE_FILTER in (m.get("title","").lower())]
+
+summary = {
+    "movies_scanned": 0,
+    "files_scanned": 0,
+    "valid_files_kept": 0,
+    "invalid_files_found": 0,
+    "skipped_ambiguous": 0,
+    "skipped_unmonitored": 0,
+}
+candidates = []
+
+for movie in movies:
+    summary["movies_scanned"] += 1
+    file_obj = movie.get("movieFile") or {}
+    if not file_obj:
+        continue
+    summary["files_scanned"] += 1
+    if not movie.get("monitored", False):
+        summary["skipped_unmonitored"] += 1
+        continue
+    original = canon(((movie.get("originalLanguage") or {}).get("name")) or "")
+    acceptable = {"english"}
+    if original and original != "english":
+        acceptable.add(original)
+    langs = audio_langs(file_obj)
+    if not langs:
+        summary["skipped_ambiguous"] += 1
+        continue
+    if any(lang in acceptable for lang in langs):
+        summary["valid_files_kept"] += 1
+        continue
+    reason = "missing_english_audio" if (not original or original == "english") else "missing_english_and_original_audio"
+    summary["invalid_files_found"] += 1
+    candidates.append({
+        "movie_id": movie["id"],
+        "movie_title": movie.get("title"),
+        "monitored": movie.get("monitored", False),
+        "file_id": file_obj.get("id"),
+        "path": file_obj.get("path"),
+        "scene_name": file_obj.get("sceneName"),
+        "reason": reason,
+        "detected_languages": langs,
+    })
+
+print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
+PY
+}
+
+print_summary() {
+  cat <<EOF
+Summary:
+  Files scanned: $FILES_SCANNED
+  Valid files kept: $VALID_FILES_KEPT
+  Invalid files found: $INVALID_FILES_FOUND
+  Script blacklist additions: $SCRIPT_BLACKLIST_ADDITIONS
+  Script blacklist repeat hits: $SCRIPT_BLACKLIST_REPEAT_HITS
+  Radarr blacklist successes: $RADARR_BLACKLIST_SUCCESSES
+  Radarr blacklist failures: $RADARR_BLACKLIST_FAILURES
+  Files deleted: $FILES_DELETED
+  Searches triggered: $SEARCHES_TRIGGERED
+  Skipped ambiguous: $SKIPPED_AMBIGUOUS
+  Skipped cooldown: $SKIPPED_COOLDOWN
+  Skipped unmonitored: $SKIPPED_UNMONITORED
+  API failures: $API_FAILURES
+  ffprobe failures: $FFPROBE_FAILURES
+EOF
+  if [[ "$DRY_RUN" != "1" ]]; then
+    print_state_totals
+  fi
+}
+
+main() {
+  require_cmd bash
+  require_cmd curl
+  require_cmd jq
+  require_cmd python3
+  if [[ "$USE_FFPROBE_FALLBACK" == "1" ]]; then
+    require_cmd ffprobe
+  fi
+
+  if [[ -z "$RADARR_API_KEY" ]]; then
+    log_line "ERROR" "RADARR_API_KEY is required"
+    exit 1
+  fi
+
+  acquire_lock
+  init_state
+  verify_radarr_connection
+
+  if [[ "$CLEAR_BLACKLIST" == "1" ]]; then
+    clear_blacklist_state
+    exit 0
+  fi
+
+  if [[ "$BLACKLIST_DUMP" == "1" ]]; then
+    dump_blacklist_state
+    exit 0
+  fi
+
+  if [[ "$STATS_DUMP" == "1" ]]; then
+    dump_stats_state
+    exit 0
+  fi
+
+  local movies_payload filtered_movies
+  movies_payload="$(fetch_movies_payload)" || {
+    log_line "ERROR" "Failed to fetch movie list"
+    exit 1
+  }
+
+  if [[ "$FAST_DISCOVERY" == "1" ]]; then
+    local discovery_json candidate_json
+    discovery_json="$(discover_candidates_fast)"
+    if ! jq -e '.summary and .candidates' >/dev/null 2>&1 <<<"$discovery_json"; then
+      log_line "ERROR" "Fast discovery failed"
+      exit 1
+    fi
+    MOVIES_SCANNED="$(jq -r '.summary.movies_scanned' <<<"$discovery_json")"
+    FILES_SCANNED="$(jq -r '.summary.files_scanned' <<<"$discovery_json")"
+    VALID_FILES_KEPT="$(jq -r '.summary.valid_files_kept' <<<"$discovery_json")"
+    INVALID_FILES_FOUND=0
+    SKIPPED_AMBIGUOUS="$(jq -r '.summary.skipped_ambiguous' <<<"$discovery_json")"
+    SKIPPED_UNMONITORED="$(jq -r '.summary.skipped_unmonitored' <<<"$discovery_json")"
+    log_line "INFO" "fast_discovery_complete movies_scanned=$MOVIES_SCANNED files_scanned=$FILES_SCANNED candidates=$(jq '.candidates | length' <<<"$discovery_json")"
+    while IFS= read -r candidate_json; do
+      [[ -z "$candidate_json" ]] && continue
+      process_invalid_candidate "$candidate_json"
+      if (( ACTION_COUNT >= MAX_ACTIONS_PER_RUN )); then
+        log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
+        break
+      fi
+    done < <(jq -c '.candidates[]' <<<"$discovery_json")
+  else
+    filtered_movies="$(filter_movies_payload "$movies_payload")"
+    if [[ "$(jq 'length' <<<"$filtered_movies")" -eq 0 ]]; then
+      log_line "WARN" "No movies matched filters"
+      exit 0
+    fi
+
+    local movie_json
+    while IFS= read -r movie_json; do
+      [[ -z "$movie_json" ]] && continue
+      MOVIES_SCANNED=$((MOVIES_SCANNED + 1))
+      process_movie "$movie_json"
+      if (( ACTION_COUNT >= MAX_ACTIONS_PER_RUN )); then
+        log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
+        break
+      fi
+    done < <(jq -c '.[]' <<<"$filtered_movies")
+  fi
+
+  record_run_stats
+  print_summary
+}
+
+main "$@"
