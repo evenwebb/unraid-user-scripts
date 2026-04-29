@@ -103,6 +103,13 @@ require_cmd() {
   }
 }
 
+files_equal() {
+  local a="$1"
+  local b="$2"
+  [[ -f "$a" && -f "$b" ]] || return 1
+  cmp -s "$a" "$b"
+}
+
 download_file() {
   local url="$1"
   local out="$2"
@@ -403,7 +410,7 @@ sync_one_folder() {
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
       log "Skipping missing folder (not installed): $(basename "$dest_folder")"
-      return 0
+      return 2
     fi
     log "Installing new folder: $(basename "$dest_folder")"
     if [[ "$DRY_RUN" == "0" ]]; then
@@ -415,12 +422,6 @@ sync_one_folder() {
     return 0
   fi
 
-  log "Updating folder: $(basename "$dest_folder")"
-
-  if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
-    backup_file "$dest_script" "$(basename "$dest_folder")"
-  fi
-
   local merged
   merged="$(mktemp)"
   if [[ -f "$dest_script" ]]; then
@@ -429,12 +430,40 @@ sync_one_folder() {
     cp "$src_script" "$merged"
   fi
 
+  local changed=0
+  if [[ ! -f "$dest_script" ]] || ! files_equal "$merged" "$dest_script"; then
+    changed=1
+  fi
+  if [[ -f "$src_name" ]]; then
+    if [[ ! -f "$dest_name" ]] || ! files_equal "$src_name" "$dest_name"; then
+      changed=1
+    fi
+  fi
+  if [[ -f "$src_desc" ]]; then
+    if [[ ! -f "$dest_desc" ]] || ! files_equal "$src_desc" "$dest_desc"; then
+      changed=1
+    fi
+  fi
+
+  if [[ $changed -eq 0 ]]; then
+    rm -f "$merged"
+    log "No changes: $(basename "$dest_folder")"
+    return 2
+  fi
+
+  log "Updating folder: $(basename "$dest_folder")"
+
+  if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
+    backup_file "$dest_script" "$(basename "$dest_folder")"
+  fi
+
   if [[ "$DRY_RUN" == "0" ]]; then
     cp "$merged" "$dest_script"
     [[ -f "$src_name" ]] && cp "$src_name" "$dest_name" || true
     [[ -f "$src_desc" ]] && cp "$src_desc" "$dest_desc" || true
   fi
   rm -f "$merged"
+  return 0
 }
 
 main() {
@@ -445,6 +474,7 @@ main() {
   require_cmd mktemp
   require_cmd cp
   require_cmd mv
+  require_cmd cmp
   require_cmd find
   require_cmd sort
 
@@ -489,18 +519,19 @@ main() {
   log "DryRun: $DRY_RUN"
 
   local src_folder folder_name dest_folder
-  local ok=0 fail=0
+  local updated=0 skipped=0 fail=0
   while IFS= read -r src_folder; do
     folder_name="$(basename "$src_folder")"
     dest_folder="$DEST_DIR/$folder_name"
-    if sync_one_folder "$src_folder" "$dest_folder"; then
-      ok=$((ok + 1))
-    else
-      fail=$((fail + 1))
-    fi
+    sync_one_folder "$src_folder" "$dest_folder"
+    case $? in
+      0) updated=$((updated + 1)) ;;
+      2) skipped=$((skipped + 1)) ;;
+      *) fail=$((fail + 1)) ;;
+    esac
   done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 
-  log "Done. Updated: $ok, Failed: $fail"
+  log "Done. Updated: $updated, Skipped: $skipped, Failed: $fail"
   if [[ $fail -gt 0 ]]; then
     return 1
   fi
