@@ -36,8 +36,10 @@ set -o pipefail
 # Docker container name for Plex
 PLEX_CONTAINER_NAME="plex"
 
-# Plex web UI URL (used to verify the service is responding)
-PLEX_WEB_UI="http://localhost:32400/web/index.html"
+# Plex web UI URL (used to verify the service is responding).
+# Prefer http://127.0.0.1:32400/... or your Unraid LAN IP — "localhost" often fails from the host
+# when Plex only binds certain interfaces (bridge/custom Docker networking).
+PLEX_WEB_UI="http://127.0.0.1:32400/web/index.html"
 
 # Optional: Unraid dynamix notify (empty = no notification when container is restarted)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
@@ -103,6 +105,40 @@ send_unraid_notify() {
     "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
 }
 
+# True if HTTP status means Plex is listening (auth/challenge/redirect still mean "up").
+is_plex_http_ok() {
+    case "$1" in
+        2??|3??|401|403|405) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# GET URL → prints HTTP code or 000
+curl_http_code() {
+    local url="$1"
+    curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$url" 2>/dev/null || echo "000"
+}
+
+# Path component of URL (e.g. /web/index.html), default /
+plex_path_from_url() {
+    local u="$1"
+    if [[ "$u" =~ ^https?://[^/]+(/.*)$ ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+    else
+        printf '/'
+    fi
+}
+
+# Port from URL or 32400
+plex_port_from_url() {
+    local u="$1"
+    if [[ "$u" =~ :([0-9]+)(/|$) ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+    else
+        printf '32400'
+    fi
+}
+
 main() {
     if [[ -z "$PLEX_CONTAINER_NAME" ]]; then
         log_err "PLEX_CONTAINER_NAME is empty."
@@ -125,19 +161,49 @@ main() {
 
     log "Plex container is running. Checking web UI..."
 
-    local http_code="000"
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$PLEX_WEB_UI" 2>/dev/null || echo "000")
+    local http_code primary_code inner_code
+    local path port loopback_url inner_url
 
-    # Plex may not support HEAD reliably and may return 401/403 without an auth token.
-    # If we can get any valid HTTP response code (including 3xx redirects or auth-required),
-    # treat the service as reachable to avoid false restarts.
-    case "$http_code" in
-        2??|3??|401|403|405)
-            log "Plex web UI responded (HTTP $http_code). No action needed."
+    path="$(plex_path_from_url "$PLEX_WEB_UI")"
+    port="$(plex_port_from_url "$PLEX_WEB_UI")"
+    loopback_url="http://127.0.0.1:${port}${path}"
+    inner_url="http://127.0.0.1:${port}${path}"
+
+    primary_code="$(curl_http_code "$PLEX_WEB_UI")"
+    http_code="$primary_code"
+
+    if is_plex_http_ok "$http_code"; then
+        log "Plex web UI responded (HTTP $http_code). No action needed."
+        return 0
+    fi
+
+    # Host often cannot reach Plex via "localhost" or a LAN IP (binding/firewall); try numeric loopback on the server.
+    if [[ "$PLEX_WEB_UI" != "$loopback_url" ]]; then
+        http_code="$(curl_http_code "$loopback_url")"
+        if is_plex_http_ok "$http_code"; then
+            log "Plex web UI responded via loopback $loopback_url (HTTP $http_code). No action needed."
             return 0
-            ;;
-    esac
-    log "Plex web UI check failed (HTTP $http_code)."
+        fi
+    fi
+
+    # Last resort: curl from inside the container (Plex listens on 127.0.0.1 there even when host routing fails).
+    inner_code=$(docker exec \
+        -e "INNER=$inner_url" \
+        -e "CT=$CONNECT_TIMEOUT" \
+        -e "MT=$MAX_TIME" \
+        "$PLEX_CONTAINER_NAME" \
+        sh -c 'command -v curl >/dev/null 2>&1 || { echo 000; exit 0; }
+            curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CT" -m "$MT" "$INNER" 2>/dev/null || echo 000' \
+        2>/dev/null) || inner_code="000"
+    inner_code="${inner_code//$'\r'/}"
+    inner_code="${inner_code//$'\n'/}"
+
+    if is_plex_http_ok "$inner_code"; then
+        log "Plex web UI responded from inside the container (HTTP $inner_code). Host checks had failed (primary HTTP $primary_code); no restart."
+        return 0
+    fi
+
+    log "Plex web UI check failed (primary HTTP $primary_code, loopback HTTP ${http_code:-n/a}, in-container HTTP ${inner_code:-000})."
 
     if [[ "$RESTART_ONLY_IF_AUTOSTART" == "1" ]]; then
         local policy
