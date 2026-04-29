@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# sync-user-scripts.sh
-# Syncs Unraid User Scripts folders from GitHub ZIP (or local repo) while preserving local config edits.
+# user-scripts-updater.sh
+# Updates Unraid User Scripts folders from GitHub ZIP (or local repo) while preserving local config edits.
 #
 # See the repo root version of this script for full documentation.
 #
@@ -20,7 +20,7 @@ DEST_DIR="/boot/config/plugins/user.scripts/scripts"
 FETCH_UPDATES="1"
 DRY_RUN="1"
 BACKUP_DIR="/boot/config/plugins/user.scripts/backups"
-WORK_DIR="/tmp/sync-user-scripts"
+WORK_DIR="/tmp/user-scripts-updater"
 
 ###############################################################################
 

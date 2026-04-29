@@ -8,9 +8,9 @@ Bash scripts for Unraid, designed to be used with the **User Scripts** plugin.
 
 All scripts use a consistent format: header block, `set -u`, config variables at the top, `log()` helper, and `main "$@"`. Edit configuration at the top of each script and remove or replace any placeholder credentials/paths before use.
 
-## Featured: Sync User Scripts (recommended)
+## Featured: User Scripts Updater (recommended)
 
-Keeping scripts updated is annoying, especially if you’ve edited variables (URLs, API keys, paths, profile IDs, etc.) inside the script. **`sync-user-scripts.sh`** solves that by syncing the User Scripts plugin folders from GitHub while **preserving your local config edits**.
+Keeping scripts updated is annoying, especially if you’ve edited variables (URLs, API keys, paths, profile IDs, etc.) inside the script. **`user-scripts-updater.sh`** solves that by updating the User Scripts plugin folders from GitHub while **preserving your local config edits**.
 
 - **What it does**
   - Downloads the latest scripts from GitHub (**no `git` required on Unraid**)
@@ -60,7 +60,7 @@ Keeping scripts updated is annoying, especially if you’ve edited variables (UR
 | **record-disk-assignments.sh** | Writes current Unraid disk assignments to `/boot/config/DISK_ASSIGNMENTS.txt`.<br>📝 **Config:** `DISKS_INI`, `OUTPUT_FILE` |
 | **remove-os-metadata.sh** | Removes macOS metadata files (`.DS_Store`, `._*`, `.Spotlight-V100`, `.Trashes`, etc.) and Windows metadata files (`Thumbs.db`, `desktop.ini`, etc.).<br>📝 **Config:** `SEARCH_PATHS`, `MAX_DEPTH`, `DELETE_MACOS_METADATA`, `DELETE_WINDOWS_METADATA`, `INCLUDE_RESOURCE_FORKS`, optional `LOG_FILE` |
 | **server-info-push.sh** | Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Pushover or Pushbullet. Hides Docker section when Docker is not started.<br>📝 **Config:** `PUSH_NOTIFICATIONS`, Pushover/Pushbullet keys, mount paths, `INCLUDE_UPS`, `NUT_UPS_NAME`<br>📬 **Notifications:** Pushover or Pushbullet |
-| **sync-user-scripts.sh** | Syncs Unraid User Scripts plugin folders from a GitHub ZIP download (no git required) while preserving your edited config variables across updates.<br>📝 **Config:** `SOURCE_MODE`, `ZIP_URL`, `REPO_DIR`, `DEST_DIR`, `FETCH_UPDATES`, `DRY_RUN`, `BACKUP_DIR`, `WORK_DIR` |
+| **user-scripts-updater.sh** | Updates Unraid User Scripts plugin folders from a GitHub ZIP download (no git required) while preserving your edited config variables across updates.<br>📝 **Config:** `SOURCE_MODE`, `ZIP_URL`, `REPO_DIR`, `DEST_DIR`, `FETCH_UPDATES`, `DRY_RUN`, `BACKUP_DIR`, `WORK_DIR` |
 | **update-radarr-profiles.sh** | Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.<br>📝 **Config:** Radarr URL/key, profile IDs, `CURL_TIMEOUT`, `RATE_LIMIT_DELAY`, `MAX_UPDATES_PER_RUN`, `LOG_VERBOSE`, `MONITORED_ONLY`, `TRIGGER_SEARCH`, `RETRY_COUNT`, optional Pushover, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
 | **update-sonarr-profiles.sh** | Updates Sonarr quality profiles by show status: airing, upcoming, ended, continuing with no upcoming.<br>📝 **Config:** Sonarr URL/key, profile IDs per category, `AIRING_DAYS`, `UPCOMING_DAYS`, `PROCESS_*`, optional Pushover, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
 | **view-docker-log-size.sh** | Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.<br>📝 **Config:** `DOCKER_CONTAINERS_PATH`, `HEAD_COUNT` |
