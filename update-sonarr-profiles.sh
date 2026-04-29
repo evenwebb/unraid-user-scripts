@@ -241,7 +241,7 @@ main() {
     [[ "$PROCESS_UPCOMING" == "true" ]] && processing="${processing:+$processing, }upcoming"
     [[ "$PROCESS_ENDED" == "true" ]] && processing="${processing:+$processing, }ended"
     [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" ]] && processing="${processing:+$processing, }continuing-no-upcoming"
-    log "Sonarr Quality Profile Updater – processing: $processing"
+    log "Sonarr Quality Profile Updater - processing: $processing"
 
     local curl_cmd=(curl "${CURL_BASE[@]}")
     [[ "$SONARR_VERIFY_SSL" != "1" ]] && curl_cmd+=(-k)

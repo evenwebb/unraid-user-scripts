@@ -32,6 +32,10 @@
 
 set -u
 
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
 # System log path - /var/log/syslog or /var/log/messages on some systems
 SYSLOG_PATH="/var/log/syslog"
 

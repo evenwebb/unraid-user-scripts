@@ -63,7 +63,7 @@ Keeping scripts updated is annoying, especially if you’ve edited variables (UR
 | **remove-os-metadata.sh** | Removes macOS metadata files (`.DS_Store`, `._*`, `.Spotlight-V100`, `.Trashes`, etc.) and Windows metadata files (`Thumbs.db`, `desktop.ini`, etc.).<br>📝 **Config:** `SEARCH_PATHS`, `MAX_DEPTH`, `DELETE_MACOS_METADATA`, `DELETE_WINDOWS_METADATA`, `INCLUDE_RESOURCE_FORKS`, optional `LOG_FILE` |
 | **server-info-push.sh** | Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Pushover or Pushbullet. Hides Docker section when Docker is not started.<br>📝 **Config:** `PUSH_NOTIFICATIONS`, Pushover/Pushbullet keys, mount paths, `INCLUDE_UPS`, `NUT_UPS_NAME`<br>📬 **Notifications:** Pushover or Pushbullet |
 | **user-scripts-updater.sh** | Updates Unraid User Scripts plugin folders from a GitHub ZIP download (no git required) while preserving your edited config variables across updates.<br>📝 **Config:** `SOURCE_MODE`, `ZIP_URL`, `REPO_DIR`, `DEST_DIR`, `FETCH_UPDATES`, `DRY_RUN`, `BACKUP_DIR`, `WORK_DIR` |
-| **update-radarr-profiles.sh** | Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.<br>📝 **Config:** Radarr URL/key, profile IDs, `CURL_TIMEOUT`, `RATE_LIMIT_DELAY`, `MAX_UPDATES_PER_RUN`, `LOG_VERBOSE`, `MONITORED_ONLY`, `TRIGGER_SEARCH`, `RETRY_COUNT`, optional Pushover, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
+| **update-radarr-profiles.sh** | Updates Radarr quality profiles by year window: premium years (current year back `PREMIUM_YEARS_BACK`) → one profile, older years → older movies profile.<br>📝 **Config:** Radarr URL/key, profile IDs, `PREMIUM_YEARS_BACK`, `CURL_TIMEOUT`, `RATE_LIMIT_DELAY`, `MAX_UPDATES_PER_RUN`, `LOG_VERBOSE`, `MONITORED_ONLY`, `TRIGGER_SEARCH`, `RETRY_COUNT`, optional Pushover, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
 | **update-sonarr-profiles.sh** | Updates Sonarr quality profiles by show status: airing, upcoming, ended, continuing with no upcoming.<br>📝 **Config:** Sonarr URL/key, profile IDs per category, `AIRING_DAYS`, `UPCOMING_DAYS`, `PROCESS_*`, optional Pushover, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
 | **view-docker-log-size.sh** | Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.<br>📝 **Config:** `DOCKER_CONTAINERS_PATH`, `HEAD_COUNT` |
 
@@ -107,7 +107,7 @@ The User Scripts plugin stores scripts in `/boot/config/plugins/user.scripts/scr
 
 **Note:** The folders in `user-scripts-folders/` are auto-generated. To regenerate them manually, run `.github/scripts/generate_folders.py`.
 
-## Clean NZB Junk – quick reference
+## Clean NZB Junk - quick reference
 
 - **Config:** `FOLDERS` (download dirs), `JUNK_EXTENSIONS` (optional).
 - **Dry-run:** Set `DEBUG=1` in the script

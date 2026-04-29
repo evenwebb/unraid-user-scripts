@@ -22,6 +22,10 @@
 
 set -u
 
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
 # Docker containers directory - default Unraid location
 DOCKER_CONTAINERS_PATH="/var/lib/docker/containers"
 

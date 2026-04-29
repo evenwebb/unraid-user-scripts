@@ -1,13 +1,13 @@
 #!/bin/bash
 #
 # update-radarr-profiles.sh
-# Updates Radarr quality profiles by year: current year → high-quality profile, previous year → default profile
+# Updates Radarr quality profiles by year window: recent years → premium profile, older years → default profile
 #
 # Description:
-#   For movies from the current year: sets quality profile to a "current year" profile
-#   (e.g. higher quality). For movies from the previous year: reverts from that
-#   profile back to the default. Run periodically (e.g. monthly) or after adding
-#   many movies.
+#   For movies in the premium window (current year back PREMIUM_YEARS_BACK years):
+#   sets quality profile to a "premium" profile (e.g. higher quality).
+#   For movies older than the premium window: reverts from that profile back to
+#   the default. Run periodically (e.g. monthly) or after adding many movies.
 #
 # Usage:
 #   ./update-radarr-profiles.sh              # Live run
@@ -16,8 +16,11 @@
 # Configuration (edit script variables below):
 #   - RADARR_URL, RADARR_API_KEY: Radarr base URL and API key
 #   - CURRENT_YEAR_PROFILE_ID, OLDER_MOVIES_PROFILE_ID: Quality profile IDs
-#   - PROCESS_CURRENT_YEAR, PROCESS_PREVIOUS_YEAR: "true" or "false"
-#   - CUSTOM_CURRENT_YEAR, CUSTOM_PREVIOUS_YEAR: Optional year overrides (empty = auto-detect)
+#   - PROCESS_CURRENT_YEAR: Apply premium profile to movies in the premium window ("true"/"false")
+#   - PROCESS_PREVIOUS_YEAR: Revert premium profile for movies older than the premium window ("true"/"false")
+#   - PREMIUM_YEARS_BACK: Number of years back (0=current year only, 1=current+previous, etc.)
+#   - CUSTOM_CURRENT_YEAR: Optional override for "current year" (empty = auto-detect)
+#   - CUSTOM_PREVIOUS_YEAR: Optional override for premium window start year (empty = auto-detect)
 #   - DRY_RUN: 1 = dry run (no API changes), 0 = live
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #   - CURL_TIMEOUT: Seconds for curl requests (default 30)
@@ -55,6 +58,12 @@ DRY_RUN="0"
 # Enable/disable processing of current and previous year (true/false)
 PROCESS_CURRENT_YEAR="true"
 PROCESS_PREVIOUS_YEAR="true"
+
+# Premium years window:
+# 0 = only current year is premium
+# 1 = current year and previous year are premium
+# 2 = current year and previous 2 years are premium, etc.
+PREMIUM_YEARS_BACK="1"
 
 # Optional: Override years (leave empty to auto-detect from system date)
 CUSTOM_CURRENT_YEAR=""
@@ -181,7 +190,8 @@ main() {
 
     # Validate numeric config
     local num_vars=("CURL_TIMEOUT:$CURL_TIMEOUT" "RATE_LIMIT_DELAY:$RATE_LIMIT_DELAY" \
-        "RETRY_COUNT:$RETRY_COUNT" "MAX_UPDATES_PER_RUN:$MAX_UPDATES_PER_RUN")
+        "RETRY_COUNT:$RETRY_COUNT" "MAX_UPDATES_PER_RUN:$MAX_UPDATES_PER_RUN" \
+        "PREMIUM_YEARS_BACK:$PREMIUM_YEARS_BACK")
     local v
     for v in "${num_vars[@]}"; do
         local name="${v%%:*}" val="${v#*:}"
@@ -190,6 +200,13 @@ main() {
             return 1
         fi
     done
+
+    # Determine premium window start year (inclusive)
+    if [[ -n "$CUSTOM_PREVIOUS_YEAR" ]]; then
+        PREMIUM_MIN_YEAR="$CUSTOM_PREVIOUS_YEAR"
+    else
+        PREMIUM_MIN_YEAR=$((THIS_YEAR - PREMIUM_YEARS_BACK))
+    fi
 
     if [[ -n "$CUSTOM_CURRENT_YEAR" ]] && [[ ! "$CUSTOM_CURRENT_YEAR" =~ ^[12][0-9]{3}$ ]]; then
         log_err "CUSTOM_CURRENT_YEAR must be a 4-digit year (1000-2999), got: $CUSTOM_CURRENT_YEAR"
@@ -230,10 +247,13 @@ main() {
         return 0
     fi
 
-    local processing_years=""
-    [[ "$PROCESS_CURRENT_YEAR" == "true" ]] && processing_years="$THIS_YEAR"
-    [[ "$PROCESS_PREVIOUS_YEAR" == "true" ]] && processing_years="${processing_years:+$processing_years and }$PREV_YEAR"
-    log "Radarr Quality Profile Updater – processing movies from year(s): ${processing_years}"
+    local premium_desc
+    if [[ "$PREMIUM_YEARS_BACK" -eq 0 ]]; then
+        premium_desc="$THIS_YEAR"
+    else
+        premium_desc="${PREMIUM_MIN_YEAR}-${THIS_YEAR}"
+    fi
+    log "Radarr Quality Profile Updater - premium years: $premium_desc (profile $CURRENT_YEAR_PROFILE_ID), older years: profile $OLDER_MOVIES_PROFILE_ID"
 
     local curl_cmd=(curl "${CURL_BASE[@]}")
     [[ "$RADARR_VERIFY_SSL" != "1" ]] && curl_cmd+=(-k)
@@ -254,27 +274,28 @@ main() {
     # Build jq filter (add monitored filter if MONITORED_ONLY=1)
     local MOVIES
     if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$PROCESS_PREVIOUS_YEAR" == "true" ]]; then
-        MOVIES=$(echo "$movie_json" | jq --arg thisyear "$THIS_YEAR" \
-               --arg prevyear "$PREV_YEAR" \
+        MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
                '[.[] |
                   select(
-                    ((.year == ($thisyear|tonumber) and .qualityProfileId != $curprof) or
-                    (.year == ($prevyear|tonumber) and .qualityProfileId == $curprof))
+                    (
+                      ((.year|tonumber) >= $minyear and .qualityProfileId != $curprof) or
+                      ((.year|tonumber) < $minyear and .qualityProfileId == $curprof)
+                    )
                     and (if $mononly == 1 then .monitored == true else true end)
                   )
                ]')
     elif [[ "$PROCESS_CURRENT_YEAR" == "true" ]]; then
-        MOVIES=$(echo "$movie_json" | jq --arg thisyear "$THIS_YEAR" \
+        MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
-               '[.[] | select(.year == ($thisyear|tonumber) and .qualityProfileId != $curprof and (if $mononly == 1 then .monitored == true else true end))]')
+               '[.[] | select((.year|tonumber) >= $minyear and .qualityProfileId != $curprof and (if $mononly == 1 then .monitored == true else true end))]')
     elif [[ "$PROCESS_PREVIOUS_YEAR" == "true" ]]; then
-        MOVIES=$(echo "$movie_json" | jq --arg prevyear "$PREV_YEAR" \
+        MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
-               '[.[] | select(.year == ($prevyear|tonumber) and .qualityProfileId == $curprof and (if $mononly == 1 then .monitored == true else true end))]')
+               '[.[] | select((.year|tonumber) < $minyear and .qualityProfileId == $curprof and (if $mononly == 1 then .monitored == true else true end))]')
     else
         MOVIES="[]"
     fi
@@ -311,13 +332,13 @@ main() {
         MOVIE_YEAR=$(echo "$MOVIE" | jq '.year')
         PROFILE_ID=$(echo "$MOVIE" | jq '.qualityProfileId')
 
-        if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$MOVIE_YEAR" -eq "$THIS_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
+        if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$MOVIE_YEAR" -ge "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
                 FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
                 UPDATED_MOVIE=$(echo "$FULL_MOVIE" | jq --argjson pid "$CURRENT_YEAR_PROFILE_ID" '.qualityProfileId = $pid')
                 if radarr_put "$RADARR_URL/api/v3/movie/$MOVIE_ID" "$UPDATED_MOVIE"; then
-                    [[ "$LOG_VERBOSE" == "1" ]] && log "  Updated: $MOVIE_TITLE ($MOVIE_YEAR) → current year profile"
+                    [[ "$LOG_VERBOSE" == "1" ]] && log "  Updated: $MOVIE_TITLE ($MOVIE_YEAR) → premium profile"
                     [[ "$TRIGGER_SEARCH" == "1" ]] && search_ids+=("$MOVIE_ID")
                 else
                     log_err "Failed to update: $MOVIE_TITLE ($MOVIE_ID)"
@@ -327,7 +348,7 @@ main() {
             [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
         fi
 
-        if [[ "$PROCESS_PREVIOUS_YEAR" == "true" && "$MOVIE_YEAR" -eq "$PREV_YEAR" && "$PROFILE_ID" -eq "$CURRENT_YEAR_PROFILE_ID" ]]; then
+        if [[ "$PROCESS_PREVIOUS_YEAR" == "true" && "$MOVIE_YEAR" -lt "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -eq "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
                 FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
