@@ -14,6 +14,7 @@
 # Configuration:
 #   - DOCKER_CONTAINERS_PATH: Path to Docker container data (default Unraid location)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - HEAD_COUNT: Number of log entries to show in before/after listing
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #

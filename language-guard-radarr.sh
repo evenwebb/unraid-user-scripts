@@ -19,11 +19,23 @@
 #   Set DRY_RUN=0 in the script for live runs
 #
 # Configuration (edit script variables below):
-#   - RADARR_URL, RADARR_API_KEY: Radarr base URL and API key
-#   - STATE_FILE, LOG_FILE, LOCK_FILE: Persistent state/log paths and lock path
-#   - MAX_ACTIONS_PER_RUN, SEARCH_COOLDOWN_DAYS: Safety limits for batch runs
-#   - MOVIE_ID, MOVIE_FILTER: Optional targeting for testing
-#   - USE_FFPROBE_FALLBACK: 1 to use ffprobe when Radarr metadata is missing
+#   - RADARR_URL: Radarr base URL
+#   - RADARR_API_KEY: Radarr API key
+#   - DRY_RUN: 1 = log only, no deletes/blocklists/searches
+#   - DEBUG: 1 = extra logging, 0 = normal
+#   - USE_FFPROBE_FALLBACK: 1 = use ffprobe when Radarr metadata is missing
+#   - LOG_FILE: Append logs to this file (empty = stdout only)
+#   - STATE_FILE: Persistent JSON state file (blacklist entries and stats)
+#   - LOCK_FILE: Lock file path to prevent concurrent runs
+#   - RATE_LIMIT_SECONDS: Seconds between Radarr API actions
+#   - MAX_ACTIONS_PER_RUN: Cap actions per run (safety limit)
+#   - SEARCH_COOLDOWN_DAYS: Minimum days between re-searching the same movie
+#   - MOVIE_ID: Optional single movie ID (test targeting)
+#   - MOVIE_FILTER: Optional substring filter on movie title (batch targeting)
+#   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
+#   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
+#   - STATS_DUMP: 1 = print run stats and exit
+#   - FAST_DISCOVERY: 1 = faster discovery pass, 0 = slower shell/jq path
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -1114,6 +1126,9 @@ main() {
   if [[ -z "$RADARR_API_KEY" ]]; then
     log_line "ERROR" "RADARR_API_KEY is required"
     exit 1
+  fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_line "INFO" "DRY-RUN: no deletions, blocklists, or searches will be performed"
   fi
 
   # Runtime counters (not editable config)

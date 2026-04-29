@@ -14,9 +14,12 @@
 #
 # Configuration:
 #   - PUSH_NOTIFICATIONS: 0 = echo only, 1 = Pushover, 2 = Pushbullet
-#   - PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY: For Pushover (both required when PUSH_NOTIFICATIONS=1)
+#   - PUSHOVER_APP_TOKEN: For Pushover (requires PUSHOVER_USER_KEY when PUSH_NOTIFICATIONS=1)
+#   - PUSHOVER_USER_KEY: For Pushover (requires PUSHOVER_APP_TOKEN when PUSH_NOTIFICATIONS=1)
 #   - PUSHBULLET_API_KEY: For Pushbullet (when PUSH_NOTIFICATIONS=2)
-#   - ARRAY_MOUNT, CACHE_MOUNT, APPDATA_MOUNT: Paths for df (free space report)
+#   - ARRAY_MOUNT: Path for df (free space report)
+#   - CACHE_MOUNT: Path for df (free space report)
+#   - APPDATA_MOUNT: Path for df (free space report)
 #   - INCLUDE_UPS: 1 to include UPS status if available (default: 1)
 #   - NUT_UPS_NAME: NUT plugin UPS name for upsc (e.g. "ups@localhost", default: auto-detect)
 #

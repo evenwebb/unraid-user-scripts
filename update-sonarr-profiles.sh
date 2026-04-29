@@ -15,10 +15,30 @@
 #   Set DRY_RUN=1 in the script for dry run (no changes)
 #
 # Configuration (edit script variables below):
-#   - SONARR_URL, SONARR_API_KEY: Sonarr base URL and API key
-#   - Profile IDs and PROCESS_* for each category
-#   - AIRING_DAYS, UPCOMING_DAYS: Thresholds for "currently airing" vs "upcoming"
-#   - DRY_RUN, LOG_FILE, CURL_TIMEOUT, RATE_LIMIT_DELAY, etc.
+#   - SONARR_URL: Sonarr base URL
+#   - SONARR_API_KEY: Sonarr API key
+#   - AIRING_PROFILE_ID: Profile ID for currently airing shows
+#   - UPCOMING_PROFILE_ID: Profile ID for upcoming shows
+#   - ENDED_PROFILE_ID: Profile ID for ended shows
+#   - CONTINUING_NO_UPCOMING_PROFILE_ID: Profile ID for continuing shows with nothing soon
+#   - PROCESS_AIRING: "true"/"false" enable currently airing processing
+#   - PROCESS_UPCOMING: "true"/"false" enable upcoming processing
+#   - PROCESS_ENDED: "true"/"false" enable ended processing
+#   - PROCESS_CONTINUING_NO_UPCOMING: "true"/"false" enable continuing-no-upcoming processing
+#   - AIRING_DAYS: Days threshold for "currently airing"
+#   - UPCOMING_DAYS: Days threshold for "upcoming" (must be >= AIRING_DAYS)
+#   - DRY_RUN: 1 = dry run (no API changes), 0 = live
+#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - CURL_TIMEOUT: Seconds for curl requests (default 30)
+#   - RATE_LIMIT_DELAY: Seconds between API updates (default 1)
+#   - SONARR_VERIFY_SSL: 1 = verify (default), 0 = skip (self-signed certs)
+#   - MAX_UPDATES_PER_RUN: Cap updates per run (0 = unlimited)
+#   - LOG_VERBOSE: 1 = log each series, 0 = summary only
+#   - MONITORED_ONLY: 1 = only update monitored series, 0 = all (default)
+#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
+#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
+#   - TRIGGER_SEARCH: 1 = trigger Sonarr search for updated series, 0 = no (default)
+#   - RETRY_COUNT: Retries for failed API calls (default 2)
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -172,6 +192,7 @@ main() {
         log_err "DRY_RUN must be 0 or 1."
         return 1
     fi
+    [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no Sonarr changes will be made"
 
     local num_vars=("CURL_TIMEOUT:$CURL_TIMEOUT" "RATE_LIMIT_DELAY:$RATE_LIMIT_DELAY" \
         "RETRY_COUNT:$RETRY_COUNT" "MAX_UPDATES_PER_RUN:$MAX_UPDATES_PER_RUN" \

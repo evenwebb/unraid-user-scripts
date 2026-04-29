@@ -14,8 +14,10 @@
 #   Set DRY_RUN=1 in the script for dry run (no changes)
 #
 # Configuration (edit script variables below):
-#   - RADARR_URL, RADARR_API_KEY: Radarr base URL and API key
-#   - CURRENT_YEAR_PROFILE_ID, OLDER_MOVIES_PROFILE_ID: Quality profile IDs
+#   - RADARR_URL: Radarr base URL
+#   - RADARR_API_KEY: Radarr API key
+#   - CURRENT_YEAR_PROFILE_ID: Quality profile ID for premium window movies
+#   - OLDER_MOVIES_PROFILE_ID: Quality profile ID for older movies
 #   - PROCESS_CURRENT_YEAR: Apply premium profile to movies in the premium window ("true"/"false")
 #   - PROCESS_PREVIOUS_YEAR: Revert premium profile for movies older than the premium window ("true"/"false")
 #   - PREMIUM_YEARS_BACK: Number of years back (0=current year only, 1=current+previous, etc.)
@@ -29,7 +31,8 @@
 #   - MAX_UPDATES_PER_RUN: Cap updates per run (0 = unlimited)
 #   - LOG_VERBOSE: 1 = log each movie, 0 = summary only
 #   - MONITORED_ONLY: 1 = only update monitored movies, 0 = all (default)
-#   - PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN: Optional Pushover notification (both required)
+#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
+#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
 #   - TRIGGER_SEARCH: 1 = trigger Radarr search for updated movies, 0 = no (default)
 #   - RETRY_COUNT: Retries for failed API calls (default 2)
 #
@@ -184,6 +187,7 @@ main() {
         log_err "DRY_RUN must be 0 or 1."
         return 1
     fi
+    [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no Radarr changes will be made"
 
     # Validate numeric config
     local num_vars=("CURL_TIMEOUT:$CURL_TIMEOUT" "RATE_LIMIT_DELAY:$RATE_LIMIT_DELAY" \

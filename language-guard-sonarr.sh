@@ -19,12 +19,24 @@
 #   Set DRY_RUN=0 in the script for live runs
 #
 # Configuration (edit script variables below):
-#   - SONARR_URL, SONARR_API_KEY: Sonarr base URL and API key
-#   - STATE_FILE, LOG_FILE, LOCK_FILE: Persistent state/log paths and lock path
-#   - MAX_ACTIONS_PER_RUN, SEARCH_COOLDOWN_DAYS: Safety limits for batch runs
-#   - DELETE_ONLY_IF_REPLACEABLE: Skip unmonitored/non-replaceable content
-#   - SERIES_ID, SERIES_FILTER: Optional targeting for testing
-#   - USE_FFPROBE_FALLBACK: 1 to use ffprobe when Sonarr metadata is missing
+#   - SONARR_URL: Sonarr base URL
+#   - SONARR_API_KEY: Sonarr API key
+#   - DRY_RUN: 1 = log only, no deletes/blocklists/searches
+#   - DEBUG: 1 = extra logging, 0 = normal
+#   - USE_FFPROBE_FALLBACK: 1 = use ffprobe when Sonarr metadata is missing
+#   - LOG_FILE: Append logs to this file (empty = stdout only)
+#   - STATE_FILE: Persistent JSON state file (blacklist entries and stats)
+#   - LOCK_FILE: Lock file path to prevent concurrent runs
+#   - RATE_LIMIT_SECONDS: Seconds between Sonarr API actions
+#   - MAX_ACTIONS_PER_RUN: Cap actions per run (safety limit)
+#   - SEARCH_COOLDOWN_DAYS: Minimum days between re-searching the same episode
+#   - DELETE_ONLY_IF_REPLACEABLE: 1 = only delete when replaceable (recommended)
+#   - SERIES_ID: Optional single series ID (test targeting)
+#   - SERIES_FILTER: Optional substring filter on series title (batch targeting)
+#   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
+#   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
+#   - STATS_DUMP: 1 = print run stats and exit
+#   - FAST_DISCOVERY: 1 = faster discovery pass, 0 = slower shell/jq path
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -1361,6 +1373,9 @@ main() {
   if [[ -z "$SONARR_API_KEY" ]]; then
     log_line "ERROR" "SONARR_API_KEY is required"
     exit 1
+  fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_line "INFO" "DRY-RUN: no deletions, blocklists, or searches will be performed"
   fi
 
   # Runtime counters (not editable config)

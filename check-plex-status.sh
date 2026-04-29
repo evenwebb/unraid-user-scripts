@@ -14,9 +14,12 @@
 # Configuration:
 #   - PLEX_CONTAINER_NAME: Docker container name for Plex
 #   - PLEX_WEB_UI: Full URL to Plex web UI (used for connectivity check)
-#   - PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN: Optional Pushover notification (both required)
+#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
+#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #   - RESTART_ONLY_IF_AUTOSTART: 1 = only restart if container has restart policy always/unless-stopped (skips when policy is "no")
+#   - CONNECT_TIMEOUT: Seconds to wait when checking Plex web UI
+#   - MAX_TIME: Max seconds for Plex web UI check request
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #

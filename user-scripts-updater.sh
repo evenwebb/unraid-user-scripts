@@ -24,6 +24,11 @@
 #   - DRY_RUN: 1 = show actions only, 0 = apply changes
 #   - BACKUP_DIR: Where to store backups of replaced scripts
 #   - WORK_DIR: Where to store ZIP cache and extraction
+#   - DOWNLOAD_CONNECT_TIMEOUT: connection timeout seconds for ZIP download
+#   - DOWNLOAD_MAX_TIME: max total seconds for ZIP download
+#   - CLEAR_CACHE: 1 = clear cached ZIP/extraction before running, 0 = reuse cache
+#   - INSTALL_MISSING: 1 = install missing folders, 0 = only update existing
+#   - RESET_CONFIG: 1 = reset to upstream default config (no merge), 0 = merge/preserve local values
 #
 # Notes:
 #   - This script expects source folders in: user-scripts-folders/
@@ -83,6 +88,10 @@ CLEAR_CACHE="0"
 # 1 = install folders that do not already exist in DEST_DIR
 # 0 = update only folders that already exist (recommended default)
 INSTALL_MISSING="0"
+
+# 1 = reset local config to upstream defaults (no config merge)
+# 0 = preserve local config values by merging (recommended default)
+RESET_CONFIG="0"
 
 ###############################################################################
 
@@ -475,7 +484,11 @@ sync_one_folder() {
   local merged
   merged="$(mktemp)"
   if [[ -f "$dest_script" ]]; then
-    merge_config_blocks "$dest_script" "$src_script" "$merged"
+    if [[ "$RESET_CONFIG" == "1" ]]; then
+      cp "$src_script" "$merged"
+    else
+      merge_config_blocks "$dest_script" "$src_script" "$merged"
+    fi
   else
     cp "$src_script" "$merged"
   fi
@@ -547,6 +560,10 @@ main() {
   fi
   if [[ "$INSTALL_MISSING" != "0" && "$INSTALL_MISSING" != "1" ]]; then
     log_err "INSTALL_MISSING must be 0 or 1"
+    return 1
+  fi
+  if [[ "$RESET_CONFIG" != "0" && "$RESET_CONFIG" != "1" ]]; then
+    log_err "RESET_CONFIG must be 0 or 1"
     return 1
   fi
 

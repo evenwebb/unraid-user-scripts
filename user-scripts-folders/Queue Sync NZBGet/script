@@ -13,26 +13,31 @@
 #   Edit config variables below to change behaviour.
 #
 # Configuration:
-#   Set URLs and API keys below (RADARR_URL, RADARR_API_KEY, SONARR_URL, SONARR_API_KEY,
-#   NZBGET_URL, NZBGET_USER, NZBGET_PASS). Leave a URL or API key empty to skip that app,
-#   or use SKIP_RADARR=1 / SKIP_SONARR=1.
+#   - RADARR_URL: Radarr base URL (empty to skip Radarr)
+#   - RADARR_API_KEY: Radarr API key (empty to skip Radarr)
+#   - SONARR_URL: Sonarr base URL (empty to skip Sonarr)
+#   - SONARR_API_KEY: Sonarr API key (empty to skip Sonarr)
+#   - NZBGET_URL: NZBGet base URL
+#   - NZBGET_USER: NZBGet username (ControlUsername)
+#   - NZBGET_PASS: NZBGet password (ControlPassword)
 #
 #   Behaviour:
-#   - CLEAR_NZBGET_FAILED=1  Clear failed downloads from NZBGet history (default: 0)
-#   - CLEAR_NZBGET_AGE_DAYS  Only clear failed history older than N days; 0 = all (default: 0)
-#   - BLOCKLIST_ENABLED=1    Blocklist release when removing from *arr queue (default: 1)
-#   - TRIGGER_SEARCH=1       Force search in Sonarr/Radarr after removal (default: 1)
-#   - SKIP_RADARR=1          Skip Radarr processing (default: 0)
-#   - SKIP_SONARR=1          Skip Sonarr processing (default: 0)
-#   - SAFE_EMPTY_QUEUE=1    Skip *arr removals when NZBGet queue is empty (default: 0)
-#   - LOCK_FILE=path         Prevent concurrent runs; empty = no lock (default: empty)
-#   - MAX_REMOVALS_PER_RUN   Cap removal attempts per run; 0 = no limit (default: 0)
-#   - RATE_LIMIT_DELAY       Seconds between API calls during removals/searches (default: 0)
-#   - RETRY_COUNT            Retries for failed curl requests; 0 = no retries (default: 0)
-#   - LOG_FILE               Append logs to file; parent directory must exist (default: empty)
-#   - CURL_TIMEOUT           Timeout for curl requests in seconds (default: 30)
-#   - SEARCH_IDS_CHUNK_SIZE   Max IDs per MoviesSearch/EpisodeSearch request (default: 50)
-#   - QUEUE_PAGE_SIZE        *arr queue page size for pagination (default: 500)
+#   - DRY_RUN: 1 = log only, no removals/searches
+#   - TRIGGER_SEARCH: 1 = trigger MoviesSearch/EpisodeSearch after removals, 0 = no
+#   - CLEAR_NZBGET_FAILED: 1 = clear failed NZBGet history entries, 0 = no
+#   - CLEAR_NZBGET_AGE_DAYS: only clear failed history older than N days; 0 = all
+#   - BLOCKLIST_ENABLED: 1 = blocklist release when removing from *arr queue; 0 = remove only
+#   - SKIP_RADARR: 1 = skip Radarr processing
+#   - SKIP_SONARR: 1 = skip Sonarr processing
+#   - SAFE_EMPTY_QUEUE: 1 = skip *arr removals when NZBGet queue is empty
+#   - LOCK_FILE: prevent concurrent runs; empty = no lock
+#   - MAX_REMOVALS_PER_RUN: cap removals per run; 0 = no limit
+#   - RATE_LIMIT_DELAY: seconds between API calls during removals/searches
+#   - RETRY_COUNT: retries for failed curl requests
+#   - LOG_FILE: append logs to file; empty = stdout only
+#   - CURL_TIMEOUT: timeout for curl requests in seconds
+#   - SEARCH_IDS_CHUNK_SIZE: max IDs per MoviesSearch/EpisodeSearch request
+#   - QUEUE_PAGE_SIZE: *arr queue page size for pagination
 #
 # Requires: curl, jq
 # Requires: flock (only if LOCK_FILE is set)

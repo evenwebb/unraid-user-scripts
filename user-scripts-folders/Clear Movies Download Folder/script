@@ -13,7 +13,8 @@
 #
 # Configuration:
 #   - DIR_PATH: Path to the movies download folder to clear
-#   - PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN: Optional Pushover notification (both required)
+#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
+#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
