@@ -303,7 +303,8 @@ line_is_assignment() {
   local line="$1"
   [[ "$line" =~ ^[[:space:]]*# ]] && return 1
   [[ "$line" =~ ^[[:space:]]*$ ]] && return 1
-  local ere='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)='
+  # Allow spaces around = (e.g. VAR = "x"). Optional export prefix.
+  local ere='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*='
   [[ "$line" =~ $ere ]]
 }
 
@@ -314,14 +315,18 @@ assignment_key() {
     line="${line#export}"
     line="${line#"${line%%[![:space:]]*}"}"
   fi
-  printf '%s' "${line%%=*}"
+  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*= ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  else
+    printf '%s' "${line%%=*}"
+  fi
 }
 
 line_starts_multiline_array() {
   # True when the line looks like: [export ]KEY=(   and does not close on the same line.
   # We intentionally keep this conservative.
   local line="$1"
-  local re='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=\('
+  local re='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=\('
   if [[ ! "$line" =~ $re ]]; then
     return 1
   fi
@@ -369,9 +374,14 @@ merge_config_blocks() {
   local line key
 
   # Build a map of key -> full assignment block (supports multi-line arrays).
+  # First occurrence wins: scripts like language-guard-radarr.sh assign RADARR_URL again
+  # later (e.g. for a Python subprocess); those must not overwrite the EDIT block values.
   while IFS= read -r line; do
     if line_is_assignment "$line"; then
       key="$(assignment_key "$line")"
+      if [[ -n "${dest_by_key[$key]:-}" ]]; then
+        continue
+      fi
       if line_starts_multiline_array "$line"; then
         local block="$line"$'\n'
         while IFS= read -r line; do
