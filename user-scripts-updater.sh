@@ -141,14 +141,25 @@ upstream_heads_and_tails_match() {
   local dest_script="$1"
   local src_script="$2"
   local s_src e_src s_dest e_dest
+  local hf1 hf2 tf1 tf2 rc=0
   read -r s_src e_src < <(get_config_range "$src_script") || return 1
   read -r s_dest e_dest < <(get_config_range "$dest_script") || return 1
   [[ "$s_src" == "$s_dest" && "$e_src" == "$e_dest" ]] || return 1
-  files_equal <(tr -d '\r' < "$dest_script" | head -n $((s_src - 1))) \
-    <(tr -d '\r' < "$src_script" | head -n $((s_src - 1))) || return 1
-  files_equal <(tr -d '\r' < "$dest_script" | tail -n +$((e_src + 1))) \
-    <(tr -d '\r' < "$src_script" | tail -n +$((e_src + 1))) || return 1
-  return 0
+
+  # Write slices to real files so cmp never SIGPIPEs head/tail mid-write (avoids
+  # "head: write error: Broken pipe" and flaky comparisons).
+  hf1="$(mktemp)"
+  hf2="$(mktemp)"
+  tf1="$(mktemp)"
+  tf2="$(mktemp)"
+  tr -d '\r' < "$dest_script" | head -n $((s_src - 1)) > "$hf1"
+  tr -d '\r' < "$src_script" | head -n $((s_src - 1)) > "$hf2"
+  tr -d '\r' < "$dest_script" | tail -n +$((e_src + 1)) > "$tf1"
+  tr -d '\r' < "$src_script" | tail -n +$((e_src + 1)) > "$tf2"
+
+  files_equal "$hf1" "$hf2" && files_equal "$tf1" "$tf2" || rc=1
+  rm -f "$hf1" "$hf2" "$tf1" "$tf2"
+  return "$rc"
 }
 
 download_file() {
@@ -476,12 +487,16 @@ merge_config_blocks() {
     done < <(printf '%s\n' "${!dest_by_key[@]}" | LC_ALL=C sort -u)
   fi
 
-  # Rebuild full script: head + merged_block + tail (LF-only; tr strips CR)
-  local tmp
+  # Rebuild full script: head + merged_block + tail (LF-only; tr strips CR).
+  # Normalize once to a temp file so head/tail do not SIGPIPE a streaming tr.
+  local tmp clean_src
   tmp="$(mktemp)"
-  tr -d '\r' < "$src_new" | head -n $((start - 1)) > "$tmp"
+  clean_src="$(mktemp)"
+  tr -d '\r' < "$src_new" > "$clean_src"
+  head -n $((start - 1)) "$clean_src" > "$tmp"
   printf '%s' "$merged_block" >> "$tmp"
-  tr -d '\r' < "$src_new" | tail -n +"$((end + 1))" >> "$tmp"
+  tail -n +"$((end + 1))" "$clean_src" >> "$tmp"
+  rm -f "$clean_src"
   mv "$tmp" "$out"
 }
 
