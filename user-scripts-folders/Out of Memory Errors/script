@@ -67,7 +67,9 @@ main() {
     fi
 
     local oom_count
-    oom_count=$(grep -c "Out of memory" "$SYSLOG_PATH" 2>/dev/null || echo "0")
+    # grep exits 1 when no matches, but still prints "0" with -c. Avoid double output.
+    oom_count=$(grep -c "Out of memory" "$SYSLOG_PATH" 2>/dev/null || true)
+    oom_count="${oom_count:-0}"
     if [[ "$oom_count" -gt 0 ]]; then
         log "OOM error(s) found in syslog ($oom_count occurrence(s))."
         if [[ -x "$NOTIFY_SCRIPT" ]]; then
