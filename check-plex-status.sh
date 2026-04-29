@@ -124,10 +124,19 @@ main() {
 
     log "Plex container is running. Checking web UI..."
 
-    if curl -s --head --fail --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$PLEX_WEB_UI" >/dev/null 2>&1; then
-        log "Plex web UI is accessible. No action needed."
-        return 0
-    fi
+    local http_code="000"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$PLEX_WEB_UI" 2>/dev/null || echo "000")
+
+    # Plex may not support HEAD reliably and may return 401/403 without an auth token.
+    # If we can get any valid HTTP response code (including 3xx redirects or auth-required),
+    # treat the service as reachable to avoid false restarts.
+    case "$http_code" in
+        2??|3??|401|403|405)
+            log "Plex web UI responded (HTTP $http_code). No action needed."
+            return 0
+            ;;
+    esac
+    log "Plex web UI check failed (HTTP $http_code)."
 
     if [[ "$RESTART_ONLY_IF_AUTOSTART" == "1" ]]; then
         local policy
