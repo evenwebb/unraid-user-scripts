@@ -120,11 +120,17 @@ require_cmd() {
   }
 }
 
+# Compare text files as User Scripts would see them: ignore CR (CRLF on flash),
+# and normalize missing final newlines so merge output matches on-disk copies.
+_normalize_for_compare() {
+  tr -d '\r' < "$1" | awk '{ print $0 }'
+}
+
 files_equal() {
   local a="$1"
   local b="$2"
   [[ -f "$a" && -f "$b" ]] || return 1
-  cmp -s "$a" "$b"
+  cmp -s <(_normalize_for_compare "$a") <(_normalize_for_compare "$b")
 }
 
 download_file() {
@@ -438,11 +444,14 @@ merge_config_blocks() {
   if [[ $orphan_count -gt 0 ]]; then
     merged_block+=$'\n'
     merged_block+="# NOTE: The following local-only variables were preserved but are not present upstream:"$'\n'
-    for key in "${!dest_by_key[@]}"; do
-      if [[ -z "${used[$key]:-}" ]]; then
-        merged_block+="${dest_by_key[$key]}"$'\n'
+    # Deterministic order (bash associative key order is undefined).
+    local orphan_key
+    while IFS= read -r orphan_key; do
+      [[ -z "$orphan_key" ]] && continue
+      if [[ -z "${used[$orphan_key]:-}" ]]; then
+        merged_block+="${dest_by_key[$orphan_key]}"$'\n'
       fi
-    done
+    done < <(printf '%s\n' "${!dest_by_key[@]}" | LC_ALL=C sort -u)
   fi
 
   # Rebuild full script: head + merged_block + tail
@@ -511,17 +520,21 @@ sync_one_folder() {
   fi
 
   local changed=0
+  local reasons=()
   if [[ ! -f "$dest_script" ]] || ! files_equal "$merged" "$dest_script"; then
     changed=1
+    reasons+=("script")
   fi
   if [[ -f "$src_name" ]]; then
     if [[ ! -f "$dest_name" ]] || ! files_equal "$src_name" "$dest_name"; then
       changed=1
+      reasons+=("name")
     fi
   fi
   if [[ -f "$src_desc" ]]; then
     if [[ ! -f "$dest_desc" ]] || ! files_equal "$src_desc" "$dest_desc"; then
       changed=1
+      reasons+=("description")
     fi
   fi
 
@@ -531,7 +544,7 @@ sync_one_folder() {
     return 2
   fi
 
-  log "Updating folder: $(basename "$dest_folder")"
+  log "Updating folder: $(basename "$dest_folder") (${reasons[*]})"
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
     backup_file "$dest_script" "$(basename "$dest_folder")"
@@ -548,6 +561,7 @@ sync_one_folder() {
 
 main() {
   require_cmd awk
+  require_cmd tr
   require_cmd sed
   require_cmd head
   require_cmd tail
