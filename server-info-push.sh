@@ -1,22 +1,20 @@
 #!/bin/bash
 #
 # server-info-push.sh
-# Sends a stylish status summary (space, temps, RAM, UPS, containers) via Pushover or Pushbullet
+# Sends a stylish status summary (space, temps, RAM, UPS, containers) via Unraid dynamix notify
 #
 # Description:
 #   Gathers array/cache/appdata free space, CPU temperatures, RAM usage,
 #   uptime, optional UPS status, running VMs, and running Docker containers
 #   (Docker section hidden if Docker is not started), then sends a formatted
-#   notification to your phone.
+#   notification via Unraid when enabled.
 #
 # Usage:
 #   ./server-info-push.sh
 #
 # Configuration:
-#   - PUSH_NOTIFICATIONS: 0 = echo only, 1 = Pushover, 2 = Pushbullet
-#   - PUSHOVER_USER_KEY: For Pushover (requires PUSHOVER_APP_TOKEN when PUSH_NOTIFICATIONS=1)
-#   - PUSHOVER_APP_TOKEN: For Pushover (requires PUSHOVER_USER_KEY when PUSH_NOTIFICATIONS=1)
-#   - PUSHBULLET_API_KEY: For Pushbullet (when PUSH_NOTIFICATIONS=2)
+#   - PUSH_NOTIFICATIONS: 0 = echo only, 1 = Unraid dynamix notify
+#   - NOTIFY_SCRIPT: Path to dynamix notify when PUSH_NOTIFICATIONS=1 (empty = print summary only)
 #   - ARRAY_MOUNT: Path for df (free space report)
 #   - CACHE_MOUNT: Path for df (free space report)
 #   - APPDATA_MOUNT: Path for df (free space report)
@@ -36,15 +34,11 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# 0 = none (echo only), 1 = Pushover, 2 = Pushbullet
+# 0 = none (echo only), 1 = Unraid notify
 PUSH_NOTIFICATIONS="0"
 
-# Pushover (when PUSH_NOTIFICATIONS=1)
-PUSHOVER_USER_KEY=""
-PUSHOVER_APP_TOKEN=""
-
-# Pushbullet (when PUSH_NOTIFICATIONS=2)
-PUSHBULLET_API_KEY=""
+# Unraid dynamix notify when PUSH_NOTIFICATIONS=1 (empty = stdout only)
+NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Mounts to report free space
 ARRAY_MOUNT="/mnt/user"
@@ -66,45 +60,29 @@ log_err() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
 }
 
-# Validate path for safety (reject .. and - prefix)
+# Validate path for safety (reject .., - prefix, newlines — same idea as disk-error-alert / dynamix paths)
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'\n'* ]] && return 1
     return 0
 }
 
 pushnotice() {
     local msg="$1"
     if [[ "$PUSH_NOTIFICATIONS" == "1" ]]; then
-        if [[ -n "$PUSHOVER_USER_KEY" ]] && [[ -z "$PUSHOVER_APP_TOKEN" ]]; then
-            log "Warning: PUSHOVER_USER_KEY is set but PUSHOVER_APP_TOKEN is missing. Notifications disabled."
-            echo "$msg"
-            return 0
-        elif [[ -z "$PUSHOVER_USER_KEY" ]] && [[ -n "$PUSHOVER_APP_TOKEN" ]]; then
-            log "Warning: PUSHOVER_APP_TOKEN is set but PUSHOVER_USER_KEY is missing. Notifications disabled."
+        [[ -z "$NOTIFY_SCRIPT" ]] && echo "$msg" && return 0
+        if ! is_safe_path "$NOTIFY_SCRIPT"; then
+            log "Warning: NOTIFY_SCRIPT path invalid."
             echo "$msg"
             return 0
         fi
-        [[ -z "$PUSHOVER_USER_KEY" || -z "$PUSHOVER_APP_TOKEN" ]] && echo "$msg" && return 0
-        if ! command -v curl >/dev/null 2>&1; then
-            log "Warning: curl not found, cannot send Pushover notification"
+        if [[ ! -x "$NOTIFY_SCRIPT" ]]; then
+            log "Warning: NOTIFY_SCRIPT not executable."
             echo "$msg"
             return 0
         fi
-        curl -s --connect-timeout 10 -m 30 \
-            --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
-            --form-string "message=$msg" https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
-    elif [[ "$PUSH_NOTIFICATIONS" == "2" ]]; then
-        [[ -z "$PUSHBULLET_API_KEY" ]] && echo "$msg" && return 0
-        if ! command -v curl >/dev/null 2>&1; then
-            log "Warning: curl not found, cannot send Pushbullet notification"
-            echo "$msg"
-            return 0
-        fi
-        curl -s --connect-timeout 10 -m 30 \
-            -u "$PUSHBULLET_API_KEY": -d type=note -d title="Unraid status" -d body="$msg" \
-            https://api.pushbullet.com/v2/pushes >/dev/null 2>&1 || true
+        "$NOTIFY_SCRIPT" -e "Server Info Push" -s "Unraid status" -d "$msg" -i "normal" 2>/dev/null || true
     else
         echo "$msg"
     fi
@@ -180,8 +158,8 @@ get_ups_status() {
 }
 
 main() {
-    if [[ "$PUSH_NOTIFICATIONS" != "0" && "$PUSH_NOTIFICATIONS" != "1" && "$PUSH_NOTIFICATIONS" != "2" ]]; then
-        log_err "PUSH_NOTIFICATIONS must be 0, 1, or 2."
+    if [[ "$PUSH_NOTIFICATIONS" != "0" && "$PUSH_NOTIFICATIONS" != "1" ]]; then
+        log_err "PUSH_NOTIFICATIONS must be 0 or 1."
         return 1
     fi
 
@@ -191,6 +169,10 @@ main() {
             return 1
         fi
     done
+    if [[ "$PUSH_NOTIFICATIONS" == "1" ]] && [[ -n "$NOTIFY_SCRIPT" ]] && ! is_safe_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path invalid."
+        return 1
+    fi
 
     log "Gathering server status..."
 

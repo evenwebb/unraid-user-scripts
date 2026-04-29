@@ -35,8 +35,7 @@
 #   - MAX_UPDATES_PER_RUN: Cap updates per run (0 = unlimited)
 #   - LOG_VERBOSE: 1 = log each series, 0 = summary only
 #   - MONITORED_ONLY: 1 = only update monitored series, 0 = all (default)
-#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
-#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
+#   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = skip completion notification)
 #   - TRIGGER_SEARCH: 1 = trigger Sonarr search for updated series, 0 = no (default)
 #   - RETRY_COUNT: Retries for failed API calls (default 2)
 #
@@ -105,9 +104,8 @@ LOG_VERBOSE="0"
 # 1 = only update monitored series, 0 = all
 MONITORED_ONLY="0"
 
-# Optional: Pushover notification (both required when set)
-PUSHOVER_USER_KEY=""
-PUSHOVER_APP_TOKEN=""
+# Optional: Unraid dynamix notify after run (empty = no notification)
+NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # 1 = trigger Sonarr search for updated series, 0 = no
 TRIGGER_SEARCH="0"
@@ -140,13 +138,18 @@ log_err() {
 
 CURL_BASE=(-s -w "\n%{http_code}" --connect-timeout "$CURL_TIMEOUT" -m "$CURL_TIMEOUT")
 
-send_pushover() {
-    local message="$1"
-    [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
-    command -v curl >/dev/null 2>&1 || return 0
-    curl -s --connect-timeout 10 -m "$CURL_TIMEOUT" \
-        -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
-        https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
+is_safe_notify_path() {
+    local p="$1"
+    [[ -z "$p" ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'\n'* ]] && return 1
+    return 0
+}
+
+send_unraid_notify() {
+    local event="$1" subject="$2" description="$3"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    is_safe_notify_path "$NOTIFY_SCRIPT" || return 0
+    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal" 2>/dev/null || true
 }
 
 sonarr_put() {
@@ -220,14 +223,9 @@ main() {
         fi
     done
 
-    if [[ -n "$PUSHOVER_APP_TOKEN" ]] && [[ -z "$PUSHOVER_USER_KEY" ]]; then
-        log "Warning: PUSHOVER_APP_TOKEN set but PUSHOVER_USER_KEY missing. Notifications disabled."
-        PUSHOVER_USER_KEY=""
-        PUSHOVER_APP_TOKEN=""
-    elif [[ -z "$PUSHOVER_APP_TOKEN" ]] && [[ -n "$PUSHOVER_USER_KEY" ]]; then
-        log "Warning: PUSHOVER_USER_KEY set but PUSHOVER_APP_TOKEN missing. Notifications disabled."
-        PUSHOVER_USER_KEY=""
-        PUSHOVER_APP_TOKEN=""
+    if [[ -n "$NOTIFY_SCRIPT" ]] && ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path invalid."
+        return 1
     fi
 
     local process_vars=("PROCESS_AIRING:$PROCESS_AIRING" "PROCESS_UPCOMING:$PROCESS_UPCOMING" \
@@ -340,7 +338,8 @@ main() {
 
     if [[ $TOTAL -eq 0 ]]; then
         log "No series need updating."
-        send_pushover "Sonarr profiles: No series needed updating."
+        send_unraid_notify "Update Sonarr Profiles" "Sonarr profiles" \
+            "Sonarr profiles: No series needed updating."
         return 0
     fi
 
@@ -404,7 +403,8 @@ main() {
 
     local summary="Done. Airing: $AIRING, Upcoming: $UPCOMING, Ended: $ENDED, Continuing: $CONTINUING. Dry-run: $DRY_RUN"
     log "$summary"
-    send_pushover "Sonarr profiles: $AIRING airing, $UPCOMING upcoming, $ENDED ended, $CONTINUING continuing. Dry-run: $DRY_RUN"
+    send_unraid_notify "Update Sonarr Profiles" "Sonarr profiles" \
+        "Sonarr profiles: $AIRING airing, $UPCOMING upcoming, $ENDED ended, $CONTINUING continuing. Dry-run: $DRY_RUN"
 }
 
 main "$@"

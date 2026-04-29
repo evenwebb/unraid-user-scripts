@@ -5,15 +5,14 @@
 #
 # Description:
 #   Counts and measures the torrent download folder, deletes all contents,
-#   then prints a summary. Optionally sends a Pushover notification.
+#   then prints a summary. Optionally sends an Unraid notification.
 #
 # Usage:
 #   ./clear-torrent-download-folder.sh
 #
 # Configuration:
 #   - DIR_PATH: Path to the torrent download folder to clear
-#   - PUSHOVER_USER_KEY: Optional Pushover user key (requires PUSHOVER_APP_TOKEN)
-#   - PUSHOVER_APP_TOKEN: Optional Pushover app token (requires PUSHOVER_USER_KEY)
+#   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = skip notification)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
@@ -32,9 +31,8 @@ set -o pipefail
 # Torrent download directory
 DIR_PATH="/mnt/user/downloads/torrents"
 
-# Optional: Pushover (leave empty to skip notification)
-PUSHOVER_USER_KEY=""
-PUSHOVER_APP_TOKEN=""
+# Optional: Unraid dynamix notify (empty = skip notification after clear)
+NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
@@ -59,18 +57,18 @@ log_err() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
 }
 
-send_pushover() {
-    local title="$1"
-    local message="$2"
-    [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
-    if ! command -v curl >/dev/null 2>&1; then
-        log "Warning: curl not found, Pushover notification skipped"
-        return 0
-    fi
-    curl -s --connect-timeout 10 -m 30 \
-        --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
-        --form-string "title=$title" --form-string "message=$message" \
-        https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
+is_safe_notify_path() {
+    local p="$1"
+    [[ -z "$p" ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'\n'* ]] && return 1
+    return 0
+}
+
+send_unraid_notify() {
+    local event="$1" subject="$2" description="$3"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    is_safe_notify_path "$NOTIFY_SCRIPT" || return 0
+    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal" 2>/dev/null || true
 }
 
 # Reject paths that are too dangerous (root, /mnt, too shallow, .. or - prefix)
@@ -94,13 +92,9 @@ main() {
         return 1
     fi
 
-    # Validate Pushover configuration (both or neither)
-    if [[ -n "$PUSHOVER_APP_TOKEN" ]] && [[ -z "$PUSHOVER_USER_KEY" ]]; then
-        log "Warning: PUSHOVER_APP_TOKEN is set but PUSHOVER_USER_KEY is missing. Notifications disabled."
-        PUSHOVER_APP_TOKEN=""
-    elif [[ -z "$PUSHOVER_APP_TOKEN" ]] && [[ -n "$PUSHOVER_USER_KEY" ]]; then
-        log "Warning: PUSHOVER_USER_KEY is set but PUSHOVER_APP_TOKEN is missing. Notifications disabled."
-        PUSHOVER_USER_KEY=""
+    if [[ -n "$NOTIFY_SCRIPT" ]] && ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path invalid."
+        return 1
     fi
 
     # Measure before deletion
@@ -115,7 +109,7 @@ main() {
 
     summary="Deleted $deleted_count items in torrent download folder, freed $before_size"
     log "$summary"
-    send_pushover "Torrent Downloads Cleared" "$summary"
+    send_unraid_notify "Clear Torrent Download Folder" "Torrent Downloads Cleared" "$summary"
 }
 
 main "$@"

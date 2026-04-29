@@ -301,20 +301,27 @@ extract_config_block() {
 
 line_is_assignment() {
   local line="$1"
-  [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]
+  [[ "$line" =~ ^[[:space:]]*# ]] && return 1
+  [[ "$line" =~ ^[[:space:]]*$ ]] && return 1
+  local ere='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)='
+  [[ "$line" =~ $ere ]]
 }
 
 assignment_key() {
   local line="$1"
   line="${line#"${line%%[![:space:]]*}"}"
+  if [[ "$line" =~ ^export[[:space:]]+ ]]; then
+    line="${line#export}"
+    line="${line#"${line%%[![:space:]]*}"}"
+  fi
   printf '%s' "${line%%=*}"
 }
 
 line_starts_multiline_array() {
-  # True when the line looks like: KEY=(   and does not close on the same line.
+  # True when the line looks like: [export ]KEY=(   and does not close on the same line.
   # We intentionally keep this conservative.
   local line="$1"
-  local re='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\('
+  local re='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=\('
   if [[ ! "$line" =~ $re ]]; then
     return 1
   fi

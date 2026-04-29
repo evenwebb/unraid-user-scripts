@@ -59,7 +59,7 @@ SCRIPT_DESCRIPTIONS = {
     'queue-sync-nzbget.sh': 'Syncs Sonarr/Radarr queues with NZBGet: removes *arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.',
     'language-guard-radarr.sh': 'Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
     'record-disk-assignments.sh': 'Writes current Unraid disk assignments to /boot/config/DISK_ASSIGNMENTS.txt.',
-    'server-info-push.sh': 'Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Pushover or Pushbullet.',
+    'server-info-push.sh': 'Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Unraid dynamix notify.',
     'language-guard-sonarr.sh': 'Audits Sonarr episode files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
     'user-scripts-updater.sh': 'Updates Unraid User Scripts folders from GitHub while preserving local config edits during upgrades.',
     'update-radarr-profiles.sh': 'Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.',
