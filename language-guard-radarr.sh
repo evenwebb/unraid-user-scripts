@@ -4,6 +4,8 @@
 # Audits Radarr movie files for acceptable audio languages, then blocklists,
 # deletes, and re-searches bad releases.
 #
+# Updater test marker: 2026-04-29
+#
 # Description:
 #   Validates imported Radarr movie files using Radarr media-language metadata.
 #   For English-original movies, requires at least one English audio track.
