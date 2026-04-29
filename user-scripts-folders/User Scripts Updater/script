@@ -419,7 +419,9 @@ merge_config_blocks() {
       fi
 
       if [[ -n "${dest_by_key[$key]:-}" ]]; then
-        merged_block+="${dest_by_key[$key]}"$'\n'
+        # Multi-line blocks already end with newline; avoid doubling blank lines.
+        merged_block+="${dest_by_key[$key]}"
+        [[ "${dest_by_key[$key]}" == *$'\n' ]] || merged_block+=$'\n'
         used["$key"]=1
       else
         # Keep the upstream assignment block.
@@ -449,7 +451,8 @@ merge_config_blocks() {
     while IFS= read -r orphan_key; do
       [[ -z "$orphan_key" ]] && continue
       if [[ -z "${used[$orphan_key]:-}" ]]; then
-        merged_block+="${dest_by_key[$orphan_key]}"$'\n'
+        merged_block+="${dest_by_key[$orphan_key]}"
+        [[ "${dest_by_key[$orphan_key]}" == *$'\n' ]] || merged_block+=$'\n'
       fi
     done < <(printf '%s\n' "${!dest_by_key[@]}" | LC_ALL=C sort -u)
   fi
@@ -513,7 +516,13 @@ sync_one_folder() {
     if [[ "$RESET_CONFIG" == "1" ]]; then
       cp "$src_script" "$merged"
     else
-      merge_config_blocks "$dest_script" "$src_script" "$merged"
+      # If dest matches upstream (normalized), merge cannot change anything — skip
+      # rebuild so we don't false-positive on newline churn inside merge_config_blocks.
+      if files_equal "$dest_script" "$src_script"; then
+        cp "$src_script" "$merged"
+      else
+        merge_config_blocks "$dest_script" "$src_script" "$merged"
+      fi
     fi
   else
     cp "$src_script" "$merged"
