@@ -4,8 +4,6 @@
 # Audits Sonarr episode files for acceptable audio languages, then blocklists,
 # deletes, and re-searches bad releases.
 #
-# Updater test marker: 2026-04-29
-#
 # Description:
 #   Validates imported Sonarr episode files using Sonarr media-language metadata.
 #   For English-original series, requires at least one English audio track.

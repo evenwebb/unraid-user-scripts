@@ -15,6 +15,7 @@ Keeping scripts updated is annoying, especially if you’ve edited variables (UR
 - **What it does**
   - Downloads the latest scripts from GitHub (**no `git` required on Unraid**)
   - Updates `/boot/config/plugins/user.scripts/scripts/…` from the repo’s `user-scripts-folders/`
+  - By default, it **only updates scripts you already have installed** (it will not install new script folders unless you enable it)
   - **Merges your “EDIT FOR YOUR SETUP” config block** so:
     - your existing variable values stay the same after updates
     - new upstream variables are added automatically using upstream defaults
@@ -30,6 +31,7 @@ Keeping scripts updated is annoying, especially if you’ve edited variables (UR
 
 - **Safety tip**
   - Start with `DRY_RUN="1"` to verify what it would change, then switch to `DRY_RUN="0"` once you’re happy.
+  - If you want it to install scripts you do not already have, set `INSTALL_MISSING="1"` for a run.
 
 - **Unraid UI tip (foreground first)**
   - In the User Scripts plugin, use **Run Script** (foreground) the first time so you can read the output.

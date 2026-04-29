@@ -72,6 +72,10 @@ WORK_DIR="/tmp/user-scripts-updater"
 # Use this if GitHub has updated but you keep getting "not modified" or stale results.
 CLEAR_CACHE="0"
 
+# 1 = install folders that do not already exist in DEST_DIR
+# 0 = update only folders that already exist (recommended default)
+INSTALL_MISSING="0"
+
 ###############################################################################
 
 timestamp() {
@@ -84,6 +88,11 @@ log() {
 
 log_err() {
   echo "[$(timestamp)] ERROR: $*" >&2
+}
+
+log_stderr() {
+  # Use this for messages inside functions that return data via stdout.
+  echo "[$(timestamp)] $*" >&2
 }
 
 require_cmd() {
@@ -164,7 +173,7 @@ ensure_work_dir() {
 clear_cache_if_requested() {
   [[ "$CLEAR_CACHE" != "1" ]] && return 0
   ensure_work_dir || return 1
-  log "Clearing cache in WORK_DIR: $WORK_DIR"
+  log_stderr "Clearing cache in WORK_DIR: $WORK_DIR"
   rm -rf "$WORK_DIR/extracted" 2>/dev/null || true
   rm -f "$WORK_DIR/unraid-user-scripts.zip" 2>/dev/null || true
   return 0
@@ -202,7 +211,7 @@ prepare_source_folders() {
   local extract_dir="$WORK_DIR/extracted"
 
   if [[ "$FETCH_UPDATES" == "1" || ! -f "$zip_path" ]]; then
-    log "Downloading ZIP: $ZIP_URL"
+    log_stderr "Downloading ZIP: $ZIP_URL"
     if [[ "$DRY_RUN" == "0" ]]; then
       local dl_rc=0
       download_file_if_modified "$ZIP_URL" "$zip_path" || dl_rc=$?
@@ -210,16 +219,16 @@ prepare_source_folders() {
         return 1
       fi
       if [[ $dl_rc -eq 0 ]]; then
-        log "ZIP updated."
+        log_stderr "ZIP updated."
         rm -rf "$extract_dir" 2>/dev/null || true
       else
-        log "ZIP not modified (no download)."
+        log_stderr "ZIP not modified (no download)."
       fi
     else
-      log "DRY_RUN: would download to $zip_path"
+      log_stderr "DRY_RUN: would download to $zip_path"
     fi
   else
-    log "Using cached ZIP: $zip_path"
+    log_stderr "Using cached ZIP: $zip_path"
   fi
 
   if [[ "$DRY_RUN" == "0" ]]; then
@@ -392,6 +401,10 @@ sync_one_folder() {
   fi
 
   if [[ ! -d "$dest_folder" ]]; then
+    if [[ "$INSTALL_MISSING" != "1" ]]; then
+      log "Skipping missing folder (not installed): $(basename "$dest_folder")"
+      return 0
+    fi
     log "Installing new folder: $(basename "$dest_folder")"
     if [[ "$DRY_RUN" == "0" ]]; then
       mkdir -p "$dest_folder"
@@ -452,18 +465,28 @@ main() {
     log_err "CLEAR_CACHE must be 0 or 1"
     return 1
   fi
+  if [[ "$INSTALL_MISSING" != "0" && "$INSTALL_MISSING" != "1" ]]; then
+    log_err "INSTALL_MISSING must be 0 or 1"
+    return 1
+  fi
 
   local src_folders
-  src_folders="$(prepare_source_folders)" || return 1
+  # prepare_source_folders returns the source path on stdout. Harden against any
+  # unexpected extra output by taking the last line only.
+  src_folders="$(prepare_source_folders | tail -n 1)" || return 1
+  if [[ -z "$src_folders" || ! -d "$src_folders" ]]; then
+    log_err "Invalid source folder path: $src_folders"
+    return 1
+  fi
 
   if [[ "$DRY_RUN" == "0" ]]; then
     mkdir -p "$DEST_DIR" "$BACKUP_DIR" 2>/dev/null || true
   fi
 
   log "Syncing User Scripts folders"
-  log "  Source: $src_folders"
-  log "  Dest:   $DEST_DIR"
-  log "  DryRun: $DRY_RUN"
+  log "Source: $src_folders"
+  log "Dest: $DEST_DIR"
+  log "DryRun: $DRY_RUN"
 
   local src_folder folder_name dest_folder
   local ok=0 fail=0
