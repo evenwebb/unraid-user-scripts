@@ -330,7 +330,12 @@ main() {
         [[ $TOTAL -gt $max_updates ]] && log "Capping at $max_updates updates (MAX_UPDATES_PER_RUN)."
     fi
 
-    local COUNT=0 CHANGED=0 REVERTED=0
+    local COUNT=0 CHANGED=0 REVERTED=0 ERRORS=0
+    local target_total=$max_updates
+    [[ $TOTAL -lt $target_total ]] && target_total=$TOTAL
+    local start_epoch
+    start_epoch=$(date +%s)
+    local progress_every=10
     local search_ids=()
     local TMP_FILE
     TMP_FILE=$(mktemp) || { log_err "Failed to create temp file"; return 1; }
@@ -346,6 +351,27 @@ main() {
         MOVIE_YEAR=$(echo "$MOVIE" | jq '.year')
         PROFILE_ID=$(echo "$MOVIE" | jq '.qualityProfileId')
 
+        if [[ "$LOG_VERBOSE" != "1" ]]; then
+            if [[ $COUNT -eq 1 ]]; then
+                log "Working... progress will update every $progress_every movies."
+            elif [[ $((COUNT % progress_every)) -eq 0 || $COUNT -eq $target_total ]]; then
+                local now_epoch elapsed rate eta
+                now_epoch=$(date +%s)
+                elapsed=$((now_epoch - start_epoch))
+                if [[ $elapsed -le 0 ]]; then
+                    log "Progress: $COUNT/$target_total (updated=$CHANGED, reverted=$REVERTED, errors=$ERRORS)"
+                else
+                    rate=$((COUNT / elapsed))
+                    if [[ $rate -le 0 ]]; then
+                        log "Progress: $COUNT/$target_total (updated=$CHANGED, reverted=$REVERTED, errors=$ERRORS) elapsed=${elapsed}s"
+                    else
+                        eta=$(((target_total - COUNT) / rate))
+                        log "Progress: $COUNT/$target_total (updated=$CHANGED, reverted=$REVERTED, errors=$ERRORS) elapsed=${elapsed}s eta=${eta}s"
+                    fi
+                fi
+            fi
+        fi
+
         if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$MOVIE_YEAR" -ge "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
@@ -356,6 +382,7 @@ main() {
                     [[ "$TRIGGER_SEARCH" == "1" ]] && search_ids+=("$MOVIE_ID")
                 else
                     log_err "Failed to update: $MOVIE_TITLE ($MOVIE_ID)"
+                    ERRORS=$((ERRORS + 1))
                 fi
             fi
             CHANGED=$((CHANGED + 1))
@@ -371,6 +398,7 @@ main() {
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Reverted: $MOVIE_TITLE ($MOVIE_YEAR) → older profile"
                 else
                     log_err "Failed to revert: $MOVIE_TITLE ($MOVIE_ID)"
+                    ERRORS=$((ERRORS + 1))
                 fi
             fi
             REVERTED=$((REVERTED + 1))
@@ -396,7 +424,7 @@ main() {
         fi
     fi
 
-    local summary="Done. Updated to current year profile: $CHANGED. Reverted to default: $REVERTED. Dry-run: $DRY_RUN"
+    local summary="Done. Updated to current year profile: $CHANGED. Reverted to default: $REVERTED. Errors: $ERRORS. Dry-run: $DRY_RUN"
     log "$summary"
     send_pushover "Radarr profiles: $CHANGED updated, $REVERTED reverted. Dry-run: $DRY_RUN"
 }
