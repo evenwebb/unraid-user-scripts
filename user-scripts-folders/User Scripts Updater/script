@@ -68,6 +68,10 @@ BACKUP_DIR="/boot/config/plugins/user.scripts/backups"
 # Working directory for downloads/extraction (must be writable)
 WORK_DIR="/tmp/user-scripts-updater"
 
+# 1 = clear cached ZIP and extraction before running
+# Use this if GitHub has updated but you keep getting "not modified" or stale results.
+CLEAR_CACHE="0"
+
 ###############################################################################
 
 timestamp() {
@@ -157,6 +161,15 @@ ensure_work_dir() {
   fi
 }
 
+clear_cache_if_requested() {
+  [[ "$CLEAR_CACHE" != "1" ]] && return 0
+  ensure_work_dir || return 1
+  log "Clearing cache in WORK_DIR: $WORK_DIR"
+  rm -rf "$WORK_DIR/extracted" 2>/dev/null || true
+  rm -f "$WORK_DIR/unraid-user-scripts.zip" 2>/dev/null || true
+  return 0
+}
+
 prepare_source_folders() {
   # Echoes the source folder path to stdout.
   if [[ "$SOURCE_MODE" == "local" ]]; then
@@ -184,6 +197,7 @@ prepare_source_folders() {
   fi
 
   ensure_work_dir || return 1
+  clear_cache_if_requested || return 1
   local zip_path="$WORK_DIR/unraid-user-scripts.zip"
   local extract_dir="$WORK_DIR/extracted"
 
