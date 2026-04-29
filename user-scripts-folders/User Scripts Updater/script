@@ -38,6 +38,11 @@
 set -u
 set -o pipefail
 
+# Safety defaults for set -u (avoid unbound counter vars)
+updated=0
+skipped=0
+fail=0
+
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
@@ -531,8 +536,8 @@ main() {
     esac
   done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 
-  log "Done. Updated: $updated, Skipped: $skipped, Failed: $fail"
-  if [[ $fail -gt 0 ]]; then
+  log "Done. Updated: ${updated:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
+  if [[ "${fail:-0}" -gt 0 ]]; then
     return 1
   fi
 }
