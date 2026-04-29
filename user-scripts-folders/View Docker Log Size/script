@@ -21,6 +21,7 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -31,6 +32,8 @@ DOCKER_CONTAINERS_PATH="/var/lib/docker/containers"
 
 # Number of log entries to display
 HEAD_COUNT="60"
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -45,6 +48,15 @@ list_docker_log_sizes() {
 }
 
 main() {
+    if ! command -v docker &>/dev/null; then
+        log_err "Docker not found or not in PATH."
+        return 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        log_err "Docker daemon not available (is Docker started in Unraid?)."
+        return 1
+    fi
+
     if [[ -z "$DOCKER_CONTAINERS_PATH" ]]; then
         log_err "DOCKER_CONTAINERS_PATH must be set."
         return 1

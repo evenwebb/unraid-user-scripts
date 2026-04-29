@@ -45,8 +45,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Directories to search - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Directories to search
 SEARCH_PATHS=(
     "/mnt/user"
     "/mnt/appdata"
@@ -66,10 +71,14 @@ INCLUDE_RESOURCE_FORKS="0"
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
+###############################################################################
+
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     echo "Error: LOG_FILE path invalid." >&2
     exit 1
 fi
+
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"

@@ -25,11 +25,16 @@
 #
 
 set -u
+set -o pipefail
 
-# Docker container name for Plex - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Docker container name for Plex
 PLEX_CONTAINER_NAME="plex"
 
-# Plex web UI URL (used to verify the service is responding) - EDIT FOR YOUR SETUP
+# Plex web UI URL (used to verify the service is responding)
 PLEX_WEB_UI="http://localhost:32400/web/index.html"
 
 # Optional: Pushover notification (leave empty to disable)
@@ -48,10 +53,14 @@ RESTART_ONLY_IF_AUTOSTART=0
 CONNECT_TIMEOUT=15
 MAX_TIME=30
 
+###############################################################################
+
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     echo "Error: LOG_FILE path invalid." >&2
     exit 1
 fi
+
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -73,11 +82,16 @@ if ! command -v docker &>/dev/null; then
     log_err "docker is required but not installed."
     exit 1
 fi
+if ! docker info >/dev/null 2>&1; then
+    log_err "Docker daemon not available (is Docker started in Unraid?)."
+    exit 1
+fi
 
 send_pushover_notification() {
     local message="$1"
     [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
-    curl -s -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
+    curl -s --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" \
+        -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
         https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
 }
 

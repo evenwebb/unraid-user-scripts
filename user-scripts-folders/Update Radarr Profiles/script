@@ -43,8 +43,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Radarr - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Radarr
 RADARR_URL=""           # e.g. http://192.168.1.10:7878 (no trailing slash)
 RADARR_API_KEY=""       # Settings → General → API Key
 
@@ -100,6 +105,8 @@ TRIGGER_SEARCH="0"
 # Retries for failed API calls
 RETRY_COUNT="2"
 
+###############################################################################
+
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
@@ -108,18 +115,7 @@ if [[ -n "$LOG_FILE" ]]; then
     fi
 fi
 
-# Determine years to use
-if [[ -n "$CUSTOM_CURRENT_YEAR" ]]; then
-    THIS_YEAR="$CUSTOM_CURRENT_YEAR"
-else
-    THIS_YEAR=$(date +"%Y")
-fi
-
-if [[ -n "$CUSTOM_PREVIOUS_YEAR" ]]; then
-    PREV_YEAR="$CUSTOM_PREVIOUS_YEAR"
-else
-    PREV_YEAR=$((THIS_YEAR - 1))
-fi
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -139,7 +135,8 @@ send_pushover() {
     local message="$1"
     [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
     command -v curl >/dev/null 2>&1 || return 0
-    curl -s -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
+    curl -s --connect-timeout 10 -m "$CURL_TIMEOUT" \
+        -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
         https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
 }
 
@@ -200,6 +197,19 @@ main() {
             return 1
         fi
     done
+
+    # Determine years to use (runtime, not editable config)
+    if [[ -n "$CUSTOM_CURRENT_YEAR" ]]; then
+        THIS_YEAR="$CUSTOM_CURRENT_YEAR"
+    else
+        THIS_YEAR=$(date +"%Y")
+    fi
+
+    if [[ -n "$CUSTOM_PREVIOUS_YEAR" ]]; then
+        PREV_YEAR="$CUSTOM_PREVIOUS_YEAR"
+    else
+        PREV_YEAR=$((THIS_YEAR - 1))
+    fi
 
     # Determine premium window start year (inclusive)
     if [[ -n "$CUSTOM_PREVIOUS_YEAR" ]]; then

@@ -42,6 +42,7 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -78,71 +79,7 @@ CURL_TIMEOUT="30"
 SEARCH_IDS_CHUNK_SIZE="50"  # Max IDs per MoviesSearch/EpisodeSearch request
 QUEUE_PAGE_SIZE="500"      # *arr queue page size (pagination handled)
 
-# Strip trailing slashes
-RADARR_URL="${RADARR_URL%/}"
-SONARR_URL="${SONARR_URL%/}"
-NZBGET_URL="${NZBGET_URL%/}"
-NZBGET_JSONRPC="${NZBGET_URL}/jsonrpc"
-
-# Require at least NZBGet to be configured (script is NZBGet-centric)
-if [[ -z "$NZBGET_URL" || -z "$NZBGET_PASS" ]]; then
-    echo "Error: Set NZBGET_URL and NZBGET_PASS (and optionally RADARR_* / SONARR_*). See script header." >&2
-    exit 1
-fi
-for cmd in curl jq; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "Error: $cmd is required but not found." >&2
-        exit 1
-    fi
-done
-
-# Validate URLs (reject file://, relative paths, etc.)
-for url_var in RADARR_URL SONARR_URL NZBGET_URL; do
-    url_val="${!url_var}"
-    [[ -z "$url_val" ]] && continue
-    if [[ ! "$url_val" =~ ^https?:// ]]; then
-        echo "Error: $url_var must start with http:// or https:// (got: $url_val)" >&2
-        exit 1
-    fi
-done
-
-# Validate LOG_FILE path (reject path traversal)
-if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid (reject path traversal or stdio)" >&2
-    exit 1
-fi
-
-# Validate numeric config (prevent infinite loops)
-if [[ ! "$SEARCH_IDS_CHUNK_SIZE" =~ ^[1-9][0-9]*$ ]] || [[ ! "$QUEUE_PAGE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: SEARCH_IDS_CHUNK_SIZE and QUEUE_PAGE_SIZE must be positive integers." >&2
-    exit 1
-fi
-if [[ ! "$RETRY_COUNT" =~ ^[0-9]+$ ]] || [[ ! "$MAX_REMOVALS_PER_RUN" =~ ^[0-9]+$ ]] || [[ ! "$RATE_LIMIT_DELAY" =~ ^[0-9]+$ ]] || [[ ! "$CLEAR_NZBGET_AGE_DAYS" =~ ^[0-9]+$ ]]; then
-    echo "Error: RETRY_COUNT, MAX_REMOVALS_PER_RUN, RATE_LIMIT_DELAY, CLEAR_NZBGET_AGE_DAYS must be non-negative integers." >&2
-    exit 1
-fi
-
-# Acquire lock if LOCK_FILE is set
-if [[ -n "$LOCK_FILE" ]]; then
-    if [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
-        echo "Error: LOCK_FILE path invalid." >&2
-        exit 1
-    fi
-    lock_dir=$(dirname "$LOCK_FILE")
-    if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
-        echo "Error: LOCK_FILE parent directory does not exist: $lock_dir" >&2
-        exit 1
-    fi
-    if ! command -v flock &>/dev/null; then
-        echo "Error: flock is required when LOCK_FILE is set but not found." >&2
-        exit 1
-    fi
-    exec 200>"$LOCK_FILE"
-    if ! flock -n 200; then
-        echo "Error: Another instance is running (lock: $LOCK_FILE). Exiting." >&2
-        exit 1
-    fi
-fi
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -154,6 +91,74 @@ log_err() {
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
+
+# Runtime normalization and validation (not part of editable config)
+
+# Strip trailing slashes
+RADARR_URL="${RADARR_URL%/}"
+SONARR_URL="${SONARR_URL%/}"
+NZBGET_URL="${NZBGET_URL%/}"
+NZBGET_JSONRPC="${NZBGET_URL}/jsonrpc"
+
+# Require at least NZBGet to be configured (script is NZBGet-centric)
+if [[ -z "$NZBGET_URL" || -z "$NZBGET_PASS" ]]; then
+    log_err "Set NZBGET_URL and NZBGET_PASS (and optionally RADARR_* / SONARR_*). See script header."
+    exit 1
+fi
+for cmd in curl jq; do
+    if ! command -v "$cmd" &>/dev/null; then
+        log_err "$cmd is required but not found."
+        exit 1
+    fi
+done
+
+# Validate URLs (reject file://, relative paths, etc.)
+for url_var in RADARR_URL SONARR_URL NZBGET_URL; do
+    url_val="${!url_var}"
+    [[ -z "$url_val" ]] && continue
+    if [[ ! "$url_val" =~ ^https?:// ]]; then
+        log_err "$url_var must start with http:// or https:// (got: $url_val)"
+        exit 1
+    fi
+done
+
+# Validate LOG_FILE path (reject path traversal)
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    log_err "LOG_FILE path invalid (reject path traversal or stdio)"
+    exit 1
+fi
+
+# Validate numeric config (prevent infinite loops)
+if [[ ! "$SEARCH_IDS_CHUNK_SIZE" =~ ^[1-9][0-9]*$ ]] || [[ ! "$QUEUE_PAGE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+    log_err "SEARCH_IDS_CHUNK_SIZE and QUEUE_PAGE_SIZE must be positive integers."
+    exit 1
+fi
+if [[ ! "$RETRY_COUNT" =~ ^[0-9]+$ ]] || [[ ! "$MAX_REMOVALS_PER_RUN" =~ ^[0-9]+$ ]] || [[ ! "$RATE_LIMIT_DELAY" =~ ^[0-9]+$ ]] || [[ ! "$CLEAR_NZBGET_AGE_DAYS" =~ ^[0-9]+$ ]]; then
+    log_err "RETRY_COUNT, MAX_REMOVALS_PER_RUN, RATE_LIMIT_DELAY, CLEAR_NZBGET_AGE_DAYS must be non-negative integers."
+    exit 1
+fi
+
+# Acquire lock if LOCK_FILE is set
+if [[ -n "$LOCK_FILE" ]]; then
+    if [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
+        log_err "LOCK_FILE path invalid."
+        exit 1
+    fi
+    lock_dir=$(dirname "$LOCK_FILE")
+    if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
+        log_err "LOCK_FILE parent directory does not exist: $lock_dir"
+        exit 1
+    fi
+    if ! command -v flock &>/dev/null; then
+        log_err "flock is required when LOCK_FILE is set but not found."
+        exit 1
+    fi
+    exec 200>"$LOCK_FILE"
+    if ! flock -n 200; then
+        log_err "Another instance is running (lock: $LOCK_FILE). Exiting."
+        exit 1
+    fi
+fi
 
 # Wrapper for curl with retry; pass through all curl args
 _curl() {

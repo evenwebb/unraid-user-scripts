@@ -77,6 +77,13 @@ All scripts in the repository root follow a consistent format:
 - No personal information (use placeholders for API keys, paths, passwords)
 - A `log()` function and a `main` entry point
 
+## Unraid compatibility and dependencies
+
+These scripts target the latest public Unraid releases and are intended to run from the **User Scripts** plugin.
+
+- **Python3**
+  - `language-guard-*.sh` requires `python3`, which can be installed via the Python3 plugin on Unraid.
+
 ## Installation (Unraid User Scripts)
 
 **Get the scripts:** Clone or download from [https://github.com/evenwebb/unraid-user-scripts](https://github.com/evenwebb/unraid-user-scripts).
@@ -110,7 +117,7 @@ The User Scripts plugin stores scripts in `/boot/config/plugins/user.scripts/scr
 ## Clean NZB Junk - quick reference
 
 - **Config:** `FOLDERS` (download dirs), `JUNK_EXTENSIONS` (optional).
-- **Dry-run:** Set `DEBUG=1` in the script
+- **Dry-run:** Set `DRY_RUN=1` in the script
 - **Run:** `./clean-nzb-junk.sh`
 
 ## Author

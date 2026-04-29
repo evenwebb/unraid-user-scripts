@@ -23,6 +23,7 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -62,6 +63,8 @@ JUNK_EXTENSIONS=(
     "*.crc" "*.crc32"        # Checksum files
 )
 
+###############################################################################
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
@@ -72,8 +75,32 @@ log_err() {
 # Validate path for safety (reject .. and - prefix)
 is_safe_path() {
     local p="$1"
+    [[ -z "$p" ]] && return 1
     [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
     return 0
+}
+
+# Precomputed pattern lists (runtime, not config)
+JUNK_SUFFIXES=()
+JUNK_HAS_R_SPLITS="0"
+
+init_junk_patterns() {
+    JUNK_SUFFIXES=()
+    JUNK_HAS_R_SPLITS="0"
+
+    local p lower
+    for p in "${JUNK_EXTENSIONS[@]}"; do
+        p="${p#\*}"
+        lower="${p,,}"
+
+        if [[ "$lower" == ".r[0-9]" || "$lower" == ".r[0-9][0-9]" ]]; then
+            JUNK_HAS_R_SPLITS="1"
+            continue
+        fi
+
+        [[ -z "$lower" ]] && continue
+        JUNK_SUFFIXES+=("$lower")
+    done
 }
 
 # Delete junk files by extension
@@ -96,19 +123,17 @@ delete_junk_files() {
         ((processed++)) || true
 
         local basename_lower="${basename,,}"
-        for pattern in "${JUNK_EXTENSIONS[@]}"; do
-            pattern="${pattern#\*}"
-            local pattern_lower="${pattern,,}"
-            if [[ "$pattern_lower" == ".r[0-9]" ]] || [[ "$pattern_lower" == ".r[0-9][0-9]" ]]; then
-                if [[ "$basename_lower" =~ \.r[0-9]+$ ]]; then
+        if [[ "$JUNK_HAS_R_SPLITS" == "1" ]] && [[ "$basename_lower" =~ \.r[0-9]+$ ]]; then
+            matched=1
+        else
+            local suffix
+            for suffix in "${JUNK_SUFFIXES[@]}"; do
+                if [[ "$basename_lower" == *"$suffix" ]] || [[ "$basename_lower" == "$suffix" ]]; then
                     matched=1
                     break
                 fi
-            elif [[ "$basename_lower" == *"$pattern_lower" ]] || [[ "$basename_lower" == "$pattern_lower" ]]; then
-                matched=1
-                break
-            fi
-        done
+            done
+        fi
 
         if [[ $matched -eq 1 ]]; then
             if [[ "$DRY_RUN" != "1" ]]; then
@@ -222,6 +247,8 @@ main() {
         log_err "FOLDERS is empty. Add at least one directory to clean."
         return 1
     fi
+
+    init_junk_patterns
 
     for folder in "${FOLDERS[@]}"; do
         if ! is_safe_path "$folder"; then

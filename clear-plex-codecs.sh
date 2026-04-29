@@ -20,9 +20,16 @@
 #
 
 set -u
+set -o pipefail
 
-# Plex codecs directory - EDIT FOR YOUR SETUP (common Unraid path below)
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Plex codecs directory (common Unraid path below)
 PLEX_CODECS_PATH="/mnt/user/appdata/plexmediaserver/Library/Application Support/Plex Media Server/Codecs"
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"

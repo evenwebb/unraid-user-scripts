@@ -27,6 +27,11 @@
 #
 
 set -u
+set -o pipefail
+
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
 
 # 0 = none (echo only), 1 = Pushover, 2 = Pushbullet
 PUSH_NOTIFICATIONS="0"
@@ -38,7 +43,7 @@ PUSHOVER_USER_KEY=""
 # Pushbullet (when PUSH_NOTIFICATIONS=2)
 PUSHBULLET_API_KEY=""
 
-# Mounts to report free space - EDIT FOR YOUR SETUP
+# Mounts to report free space
 ARRAY_MOUNT="/mnt/user"
 CACHE_MOUNT="/mnt/downloads"
 APPDATA_MOUNT="/mnt/appdata"
@@ -48,6 +53,8 @@ INCLUDE_UPS="1"
 
 # NUT UPS name for upsc (e.g. "ups@localhost"). Empty = auto-detect or use apcaccess
 NUT_UPS_NAME=""
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -82,7 +89,8 @@ pushnotice() {
             echo "$msg"
             return 0
         fi
-        curl -s --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
+        curl -s --connect-timeout 10 -m 30 \
+            --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
             --form-string "message=$msg" https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
     elif [[ "$PUSH_NOTIFICATIONS" == "2" ]]; then
         [[ -z "$PUSHBULLET_API_KEY" ]] && echo "$msg" && return 0
@@ -91,7 +99,8 @@ pushnotice() {
             echo "$msg"
             return 0
         fi
-        curl -s -u "$PUSHBULLET_API_KEY": -d type=note -d title="Unraid status" -d body="$msg" \
+        curl -s --connect-timeout 10 -m 30 \
+            -u "$PUSHBULLET_API_KEY": -d type=note -d title="Unraid status" -d body="$msg" \
             https://api.pushbullet.com/v2/pushes >/dev/null 2>&1 || true
     else
         echo "$msg"

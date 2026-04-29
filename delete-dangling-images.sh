@@ -20,9 +20,12 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
+###############################################################################
+
 ###############################################################################
 
 log() {
@@ -37,9 +40,14 @@ main() {
         log_err "Docker not found or not in PATH."
         return 1
     fi
+    if ! docker info >/dev/null 2>&1; then
+        log_err "Docker daemon not available (is Docker started in Unraid?)."
+        return 1
+    fi
 
     log "Removing dangling Docker images..."
-    removed=$(docker images --quiet --filter "dangling=true" 2>/dev/null)
+    local removed
+    removed="$(docker images --quiet --filter "dangling=true" 2>/dev/null || true)"
     if [[ -z "$removed" ]]; then
         log "No dangling images found."
         return 0

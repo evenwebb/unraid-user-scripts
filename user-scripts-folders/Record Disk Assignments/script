@@ -22,6 +22,7 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -32,6 +33,8 @@ DISKS_INI="/var/local/emhttp/disks.ini"
 
 # Output file path
 OUTPUT_FILE="/boot/config/DISK_ASSIGNMENTS.txt"
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"

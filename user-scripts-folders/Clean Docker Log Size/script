@@ -22,6 +22,7 @@
 #
 
 set -u
+set -o pipefail
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -45,6 +46,8 @@ if [[ -n "$LOG_FILE" ]]; then
     exec > >(tee -a "$LOG_FILE")
 fi
 
+###############################################################################
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
@@ -57,12 +60,25 @@ list_docker_log_sizes() {
 }
 
 main() {
+    if ! command -v docker &>/dev/null; then
+        log_err "Docker not found or not in PATH."
+        return 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        log_err "Docker daemon not available (is Docker started in Unraid?)."
+        return 1
+    fi
+
     if [[ "$DOCKER_CONTAINERS_PATH" == *".."* || "$DOCKER_CONTAINERS_PATH" == "-"* ]]; then
         log_err "DOCKER_CONTAINERS_PATH invalid."
         return 1
     fi
     if [[ -z "$DOCKER_CONTAINERS_PATH" ]]; then
         log_err "DOCKER_CONTAINERS_PATH is empty."
+        return 1
+    fi
+    if [[ ! "$HEAD_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+        log_err "HEAD_COUNT must be a positive integer, got: $HEAD_COUNT"
         return 1
     fi
     if [[ "$DOCKER_CONTAINERS_PATH" == /var/lib/docker* ]] && [[ $EUID -ne 0 ]]; then

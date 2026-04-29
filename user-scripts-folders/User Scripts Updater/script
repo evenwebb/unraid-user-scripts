@@ -8,13 +8,12 @@
 #   script folders from either:
 #   - a GitHub ZIP download (no git required), or
 #   - a local checkout directory
-#   and merges the "EDIT FOR YOUR SETUP" config block so your customized variables
+#   and merges each script's editable config section so your customized variables
 #   survive upgrades. New variables added upstream are automatically included using
 #   upstream defaults.
 #
-# Usage (recommended, no git required):
-#   1) Leave SOURCE_MODE="zip" and ZIP_URL as-is (or point it at a tagged release ZIP).
-#   2) Run from Unraid User Scripts plugin on demand or on a schedule.
+# Usage:
+#   Run from the Unraid User Scripts plugin (foreground first, then schedule).
 #
 # Configuration (edit script variables below):
 #   - SOURCE_MODE: "zip" (download) or "local" (use REPO_DIR)
@@ -28,8 +27,8 @@
 #
 # Notes:
 #   - This script expects source folders in: user-scripts-folders/
-#   - It preserves config for scripts that contain an "EDIT FOR YOUR SETUP" marker.
-#   - If a script has no config marker, it will be overwritten as-is.
+#   - It preserves config for scripts that contain an editable config marker.
+#   - If a script has no marker, it will be overwritten as-is.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -38,10 +37,10 @@
 set -u
 set -o pipefail
 
-# Safety defaults for set -u (avoid unbound counter vars)
-updated=0
-skipped=0
-fail=0
+if [[ -z "${BASH_VERSINFO:-}" ]] || [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
+  echo "Error: This script requires Bash 4+ (associative arrays are used). Current bash: ${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
 
 ###############################################################################
 # EDIT FOR YOUR SETUP
@@ -72,6 +71,10 @@ BACKUP_DIR="/boot/config/plugins/user.scripts/backups"
 
 # Working directory for downloads/extraction (must be writable)
 WORK_DIR="/tmp/user-scripts-updater"
+
+# Download timeouts for ZIP fetch (seconds)
+DOWNLOAD_CONNECT_TIMEOUT="15"
+DOWNLOAD_MAX_TIME="300"
 
 # 1 = clear cached ZIP and extraction before running
 # Use this if GitHub has updated but you keep getting "not modified" or stale results.
@@ -121,7 +124,7 @@ download_file() {
 
   if command -v curl >/dev/null 2>&1; then
     # -R: set local mtime from remote Last-Modified (enables effective -z later)
-    curl -fsSL -R "$url" -o "$out"
+    curl -fsSL -R --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" -m "$DOWNLOAD_MAX_TIME" "$url" -o "$out"
     return $?
   fi
   if command -v wget >/dev/null 2>&1; then
@@ -152,7 +155,7 @@ download_file_if_modified() {
     # -z <file>: If-Modified-Since using file mtime
     # -R: write remote Last-Modified as local mtime (for next run)
     local http
-    http="$(curl -sS -L -R -z "$out" -o "$out.tmp" -w '%{http_code}' "$url" 2>/dev/null || true)"
+    http="$(curl -sS -L -R --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" -m "$DOWNLOAD_MAX_TIME" -z "$out" -o "$out.tmp" -w '%{http_code}' "$url" 2>/dev/null || true)"
     if [[ "$http" == "304" ]]; then
       rm -f "$out.tmp" 2>/dev/null || true
       return 2
@@ -224,51 +227,45 @@ prepare_source_folders() {
 
   if [[ "$FETCH_UPDATES" == "1" || ! -f "$zip_path" ]]; then
     log_stderr "Downloading ZIP: $ZIP_URL"
-    if [[ "$DRY_RUN" == "0" ]]; then
-      local dl_rc=0
-      download_file_if_modified "$ZIP_URL" "$zip_path" || dl_rc=$?
-      if [[ $dl_rc -eq 1 ]]; then
-        return 1
-      fi
-      if [[ $dl_rc -eq 0 ]]; then
-        log_stderr "ZIP updated."
-        rm -rf "$extract_dir" 2>/dev/null || true
-      else
-        log_stderr "ZIP not modified (no download)."
-      fi
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log_stderr "DRY_RUN: downloading/extracting is allowed (no destination writes)."
+    fi
+    local dl_rc=0
+    download_file_if_modified "$ZIP_URL" "$zip_path" || dl_rc=$?
+    if [[ $dl_rc -eq 1 ]]; then
+      return 1
+    fi
+    if [[ $dl_rc -eq 0 ]]; then
+      log_stderr "ZIP updated."
+      rm -rf "$extract_dir" 2>/dev/null || true
     else
-      log_stderr "DRY_RUN: would download to $zip_path"
+      log_stderr "ZIP not modified (no download)."
     fi
   else
     log_stderr "Using cached ZIP: $zip_path"
   fi
 
-  if [[ "$DRY_RUN" == "0" ]]; then
-    require_cmd unzip
-    rm -rf "$extract_dir" 2>/dev/null || true
-    mkdir -p "$extract_dir" 2>/dev/null || true
-    unzip -q "$zip_path" -d "$extract_dir" || {
-      log_err "Failed to unzip: $zip_path"
-      return 1
-    }
-    # ZIP contains a single top-level folder.
-    local top_dir
-    top_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)"
-    if [[ -z "$top_dir" ]]; then
-      log_err "Unexpected ZIP layout (no top dir) in $extract_dir"
-      return 1
-    fi
-    local src_folders="$top_dir/user-scripts-folders"
-    if [[ ! -d "$src_folders" ]]; then
-      log_err "user-scripts-folders not found in ZIP: $src_folders"
-      return 1
-    fi
-    echo "$src_folders"
-    return 0
+  # Always extract so DRY_RUN can still produce a real preview.
+  require_cmd unzip
+  rm -rf "$extract_dir" 2>/dev/null || true
+  mkdir -p "$extract_dir" 2>/dev/null || true
+  unzip -q "$zip_path" -d "$extract_dir" || {
+    log_err "Failed to unzip: $zip_path"
+    return 1
+  }
+  # ZIP contains a single top-level folder.
+  local top_dir
+  top_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)"
+  if [[ -z "$top_dir" ]]; then
+    log_err "Unexpected ZIP layout (no top dir) in $extract_dir"
+    return 1
   fi
-
-  # DRY_RUN: return a placeholder path.
-  echo "$WORK_DIR/extracted/<repo>/user-scripts-folders"
+  local src_folders="$top_dir/user-scripts-folders"
+  if [[ ! -d "$src_folders" ]]; then
+    log_err "user-scripts-folders not found in ZIP: $src_folders"
+    return 1
+  fi
+  echo "$src_folders"
   return 0
 }
 
@@ -277,7 +274,7 @@ get_config_range() {
   local file="$1"
   awk '
     BEGIN { start=0; end=0 }
-    start==0 && $0 ~ /EDIT FOR YOUR SETUP/ { start=NR+1; next }
+    start==0 && $0 ~ /^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP[[:space:]]*$/ { start=NR+1; next }
     start>0 && end==0 && $0 ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)[[:space:]]*\\{/ { end=NR-1; print start, end; exit }
     END { if (start>0 && end==0) { end=NR; print start, end } }
   ' "$file"
@@ -302,6 +299,26 @@ assignment_key() {
   local line="$1"
   line="${line#"${line%%[![:space:]]*}"}"
   printf '%s' "${line%%=*}"
+}
+
+line_starts_multiline_array() {
+  # True when the line looks like: KEY=(   and does not close on the same line.
+  # We intentionally keep this conservative.
+  local line="$1"
+  local re='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\\('
+  if [[ ! "$line" =~ $re ]]; then
+    return 1
+  fi
+  # If a closing ")" appears later on the same line, treat as single-line.
+  [[ "$line" == *")"* ]] && return 1
+  return 0
+}
+
+line_is_array_close() {
+  # Matches a bare closing paren line, optionally with trailing comment.
+  local line="$1"
+  local re='^[[:space:]]*[)][[:space:]]*(#.*)?$'
+  [[ "$line" =~ $re ]]
 }
 
 merge_config_blocks() {
@@ -335,22 +352,50 @@ merge_config_blocks() {
   declare -A used=()
   local line key
 
+  # Build a map of key -> full assignment block (supports multi-line arrays).
   while IFS= read -r line; do
     if line_is_assignment "$line"; then
       key="$(assignment_key "$line")"
-      dest_by_key["$key"]="$line"
+      if line_starts_multiline_array "$line"; then
+        local block="$line"$'\n'
+        while IFS= read -r line; do
+          block+="$line"$'\n'
+          line_is_array_close "$line" && break
+        done
+        dest_by_key["$key"]="$block"
+      else
+        dest_by_key["$key"]="$line"
+      fi
     fi
   done <<<"$dest_block"
 
   local merged_block=""
+
+  # Rebuild config block using upstream structure, but inject dest values by key.
   while IFS= read -r line; do
     if line_is_assignment "$line"; then
       key="$(assignment_key "$line")"
+
+      # Consume the full upstream assignment block if this is a multi-line array.
+      local src_block_text="$line"
+      if line_starts_multiline_array "$line"; then
+        src_block_text+=$'\n'
+        while IFS= read -r line; do
+          src_block_text+="$line"$'\n'
+          line_is_array_close "$line" && break
+        done
+      fi
+
       if [[ -n "${dest_by_key[$key]:-}" ]]; then
         merged_block+="${dest_by_key[$key]}"$'\n'
         used["$key"]=1
       else
-        merged_block+="$line"$'\n'
+        # Keep the upstream assignment block.
+        if [[ "$src_block_text" == *$'\n' ]]; then
+          merged_block+="$src_block_text"
+        else
+          merged_block+="$src_block_text"$'\n'
+        fi
       fi
     else
       merged_block+="$line"$'\n'
@@ -542,5 +587,7 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
 

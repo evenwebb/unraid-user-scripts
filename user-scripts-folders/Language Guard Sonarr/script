@@ -40,7 +40,11 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Sonarr - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Sonarr
 SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
 SONARR_API_KEY=""       # Settings -> General -> API Key
 
@@ -79,29 +83,6 @@ STATS_DUMP="0"
 FAST_DISCOVERY="1"
 
 ###############################################################################
-# Global counters
-###############################################################################
-
-FILES_SCANNED=0
-INVALID_FILES_FOUND=0
-VALID_FILES_KEPT=0
-SCRIPT_BLACKLIST_ADDITIONS=0
-SCRIPT_BLACKLIST_REPEAT_HITS=0
-SONARR_BLACKLIST_SUCCESSES=0
-SONARR_BLACKLIST_FAILURES=0
-FILES_DELETED=0
-SEARCHES_TRIGGERED=0
-SKIPPED_AMBIGUOUS=0
-SKIPPED_COOLDOWN=0
-SKIPPED_UNMONITORED=0
-SKIPPED_UNREPLACEABLE=0
-API_FAILURES=0
-FFPROBE_FAILURES=0
-ACTION_COUNT=0
-SERIES_SCANNED=0
-
-SEEN_FILE_ACTIONS=""
-SEEN_EPISODE_SEARCHES=""
 
 ###############################################################################
 # Logging
@@ -1381,6 +1362,28 @@ main() {
     log_line "ERROR" "SONARR_API_KEY is required"
     exit 1
   fi
+
+  # Runtime counters (not editable config)
+  FILES_SCANNED=0
+  INVALID_FILES_FOUND=0
+  VALID_FILES_KEPT=0
+  SCRIPT_BLACKLIST_ADDITIONS=0
+  SCRIPT_BLACKLIST_REPEAT_HITS=0
+  SONARR_BLACKLIST_SUCCESSES=0
+  SONARR_BLACKLIST_FAILURES=0
+  FILES_DELETED=0
+  SEARCHES_TRIGGERED=0
+  SKIPPED_AMBIGUOUS=0
+  SKIPPED_COOLDOWN=0
+  SKIPPED_UNMONITORED=0
+  SKIPPED_UNREPLACEABLE=0
+  API_FAILURES=0
+  FFPROBE_FAILURES=0
+  ACTION_COUNT=0
+  SERIES_SCANNED=0
+
+  SEEN_FILE_ACTIONS=""
+  SEEN_EPISODE_SEARCHES=""
 
   acquire_lock
   init_state

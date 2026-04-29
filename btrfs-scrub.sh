@@ -21,8 +21,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Device or mount point to scrub - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Device or mount point to scrub
 SCRUB_DEVICE="/mnt/downloads"
 
 # Where to save scrub log output (default: /boot/logs/scrub.log if empty)
@@ -31,10 +36,14 @@ LOG_FILE="/boot/logs/scrub.log"
 # Unraid notify script (dynamix plugin)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
+###############################################################################
+
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     echo "Error: LOG_FILE path invalid." >&2
     exit 1
 fi
+
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"

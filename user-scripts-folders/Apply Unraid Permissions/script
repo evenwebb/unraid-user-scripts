@@ -29,8 +29,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Directories to apply new permissions - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Directories to apply new permissions
 PERM_PATHS=(
     "/mnt/user"
     "/mnt/appdata"
@@ -45,6 +50,8 @@ CHMOD_FLAGS="u-x,go-rwx,go+u,ugo+X"
 
 # Behaviour
 DRY_RUN="0"
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"

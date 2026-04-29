@@ -30,8 +30,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Sonarr - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Sonarr
 SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
 SONARR_API_KEY=""       # Settings → General → API Key
 
@@ -90,6 +95,8 @@ TRIGGER_SEARCH="0"
 # Retries for failed API calls
 RETRY_COUNT="2"
 
+###############################################################################
+
 # Validate LOG_FILE path
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
@@ -97,6 +104,8 @@ if [[ -n "$LOG_FILE" ]]; then
         exit 1
     fi
 fi
+
+###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -115,7 +124,8 @@ send_pushover() {
     local message="$1"
     [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && return 0
     command -v curl >/dev/null 2>&1 || return 0
-    curl -s -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
+    curl -s --connect-timeout 10 -m "$CURL_TIMEOUT" \
+        -F "token=$PUSHOVER_APP_TOKEN" -F "user=$PUSHOVER_USER_KEY" -F "message=$message" \
         https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
 }
 

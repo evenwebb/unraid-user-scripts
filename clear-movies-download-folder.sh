@@ -23,8 +23,13 @@
 #
 
 set -u
+set -o pipefail
 
-# Movies download directory - EDIT FOR YOUR SETUP
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+# Movies download directory
 DIR_PATH="/mnt/user/downloads/complete/movies"
 
 # Optional: Pushover (leave empty to skip notification)
@@ -34,6 +39,8 @@ PUSHOVER_APP_TOKEN=""
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
+###############################################################################
+
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     echo "Error: LOG_FILE path invalid." >&2
     exit 1
@@ -42,6 +49,8 @@ if [[ -n "$LOG_FILE" ]]; then
     mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
     exec > >(tee -a "$LOG_FILE")
 fi
+
+###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -58,7 +67,8 @@ send_pushover() {
         log "Warning: curl not found, Pushover notification skipped"
         return 0
     fi
-    curl -s --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
+    curl -s --connect-timeout 10 -m 30 \
+        --form-string "token=$PUSHOVER_APP_TOKEN" --form-string "user=$PUSHOVER_USER_KEY" \
         --form-string "title=$title" --form-string "message=$message" \
         https://api.pushover.net/1/messages.json >/dev/null 2>&1 || true
 }
