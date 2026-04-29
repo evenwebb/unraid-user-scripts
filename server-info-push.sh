@@ -14,8 +14,8 @@
 #
 # Configuration:
 #   - PUSH_NOTIFICATIONS: 0 = echo only, 1 = Pushover, 2 = Pushbullet
-#   - PUSHOVER_APP_TOKEN: For Pushover (requires PUSHOVER_USER_KEY when PUSH_NOTIFICATIONS=1)
 #   - PUSHOVER_USER_KEY: For Pushover (requires PUSHOVER_APP_TOKEN when PUSH_NOTIFICATIONS=1)
+#   - PUSHOVER_APP_TOKEN: For Pushover (requires PUSHOVER_USER_KEY when PUSH_NOTIFICATIONS=1)
 #   - PUSHBULLET_API_KEY: For Pushbullet (when PUSH_NOTIFICATIONS=2)
 #   - ARRAY_MOUNT: Path for df (free space report)
 #   - CACHE_MOUNT: Path for df (free space report)
@@ -40,8 +40,8 @@ set -o pipefail
 PUSH_NOTIFICATIONS="0"
 
 # Pushover (when PUSH_NOTIFICATIONS=1)
-PUSHOVER_APP_TOKEN=""
 PUSHOVER_USER_KEY=""
+PUSHOVER_APP_TOKEN=""
 
 # Pushbullet (when PUSH_NOTIFICATIONS=2)
 PUSHBULLET_API_KEY=""
@@ -77,16 +77,16 @@ is_safe_path() {
 pushnotice() {
     local msg="$1"
     if [[ "$PUSH_NOTIFICATIONS" == "1" ]]; then
-        if [[ -n "$PUSHOVER_APP_TOKEN" ]] && [[ -z "$PUSHOVER_USER_KEY" ]]; then
-            log "Warning: PUSHOVER_APP_TOKEN is set but PUSHOVER_USER_KEY is missing. Notifications disabled."
-            echo "$msg"
-            return 0
-        elif [[ -z "$PUSHOVER_APP_TOKEN" ]] && [[ -n "$PUSHOVER_USER_KEY" ]]; then
+        if [[ -n "$PUSHOVER_USER_KEY" ]] && [[ -z "$PUSHOVER_APP_TOKEN" ]]; then
             log "Warning: PUSHOVER_USER_KEY is set but PUSHOVER_APP_TOKEN is missing. Notifications disabled."
             echo "$msg"
             return 0
+        elif [[ -z "$PUSHOVER_USER_KEY" ]] && [[ -n "$PUSHOVER_APP_TOKEN" ]]; then
+            log "Warning: PUSHOVER_APP_TOKEN is set but PUSHOVER_USER_KEY is missing. Notifications disabled."
+            echo "$msg"
+            return 0
         fi
-        [[ -z "$PUSHOVER_APP_TOKEN" || -z "$PUSHOVER_USER_KEY" ]] && echo "$msg" && return 0
+        [[ -z "$PUSHOVER_USER_KEY" || -z "$PUSHOVER_APP_TOKEN" ]] && echo "$msg" && return 0
         if ! command -v curl >/dev/null 2>&1; then
             log "Warning: curl not found, cannot send Pushover notification"
             echo "$msg"
