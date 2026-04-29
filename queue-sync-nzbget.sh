@@ -97,6 +97,15 @@ log_err() {
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
+# Log a line built with printf so *arr titles (user/API-controlled) are never
+# re-parsed as shell (titles may contain $(), backticks, or %).
+log_fmt() {
+    local _msg
+    # shellcheck disable=SC2059
+    printf -v _msg "$@" || return
+    log "$_msg"
+}
+
 # Runtime normalization and validation (not part of editable config)
 
 # Strip trailing slashes
@@ -333,10 +342,10 @@ process_radarr() {
     safe_title="${safe_title//\`/\\`}"
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log "Radarr: [DRY-RUN] would remove${bl_msg} '$safe_title' (queueId=$qid), would search movie $mid"
+      log_fmt "Radarr: [DRY-RUN] would remove%s '%s' (queueId=%s), would search movie %s" "${bl_msg}" "${safe_title}" "${qid}" "${mid}"
     else
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log "Radarr: stale '$safe_title' (downloadId=$did, queueId=$qid) -> remove${bl_msg}"
+      log_fmt "Radarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${safe_title}" "${did}" "${qid}" "${bl_msg}"
     fi
   done <<< "$records"
 
@@ -415,10 +424,10 @@ process_sonarr() {
     [[ -n "$sid" && "$sid" != "null" ]] && series_ids="$series_ids $sid"
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log "Sonarr: [DRY-RUN] would remove${bl_msg} '$safe_title' (queueId=$qid)"
+      log_fmt "Sonarr: [DRY-RUN] would remove%s '%s' (queueId=%s)" "${bl_msg}" "${safe_title}" "${qid}"
     else
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log "Sonarr: stale '$safe_title' (downloadId=$did, queueId=$qid) -> remove${bl_msg}"
+      log_fmt "Sonarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${safe_title}" "${did}" "${qid}" "${bl_msg}"
     fi
   done <<< "$records"
 
