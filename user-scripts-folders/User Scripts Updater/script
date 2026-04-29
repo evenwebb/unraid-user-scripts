@@ -133,6 +133,24 @@ files_equal() {
   cmp -s <(_normalize_for_compare "$a") <(_normalize_for_compare "$b")
 }
 
+# True when the editable block has the same line span on disk and in the ZIP,
+# and everything outside that block matches. Then only EDIT-block settings differ
+# (or formatting inside the block). Used to avoid rewriting the User Scripts
+# Updater script on every run after changing DRY_RUN, paths, etc.
+upstream_heads_and_tails_match() {
+  local dest_script="$1"
+  local src_script="$2"
+  local s_src e_src s_dest e_dest
+  read -r s_src e_src < <(get_config_range "$src_script") || return 1
+  read -r s_dest e_dest < <(get_config_range "$dest_script") || return 1
+  [[ "$s_src" == "$s_dest" && "$e_src" == "$e_dest" ]] || return 1
+  files_equal <(tr -d '\r' < "$dest_script" | head -n $((s_src - 1))) \
+    <(tr -d '\r' < "$src_script" | head -n $((s_src - 1))) || return 1
+  files_equal <(tr -d '\r' < "$dest_script" | tail -n +$((e_src + 1))) \
+    <(tr -d '\r' < "$src_script" | tail -n +$((e_src + 1))) || return 1
+  return 0
+}
+
 download_file() {
   local url="$1"
   local out="$2"
@@ -286,13 +304,14 @@ prepare_source_folders() {
 
 get_config_range() {
   # Prints: "<start_line> <end_line>" or nothing if marker not found.
+  # Strip CR so CRLF on flash does not break the EDIT marker match.
   local file="$1"
-  awk '
+  tr -d '\r' < "$file" | awk '
     BEGIN { start=0; end=0 }
     start==0 && $0 ~ /^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP[[:space:]]*$/ { start=NR+1; next }
     start>0 && end==0 && $0 ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)[[:space:]]*\\{/ { end=NR-1; print start, end; exit }
     END { if (start>0 && end==0) { end=NR; print start, end } }
-  ' "$file"
+  '
 }
 
 extract_config_block() {
@@ -302,7 +321,7 @@ extract_config_block() {
   if [[ -z "${start:-}" || -z "${end:-}" ]]; then
     return 1
   fi
-  sed -n "${start},${end}p" "$file"
+  tr -d '\r' < "$file" | sed -n "${start},${end}p"
 }
 
 line_is_assignment() {
@@ -457,12 +476,12 @@ merge_config_blocks() {
     done < <(printf '%s\n' "${!dest_by_key[@]}" | LC_ALL=C sort -u)
   fi
 
-  # Rebuild full script: head + merged_block + tail
+  # Rebuild full script: head + merged_block + tail (LF-only; tr strips CR)
   local tmp
   tmp="$(mktemp)"
-  head -n $((start - 1)) "$src_new" > "$tmp"
+  tr -d '\r' < "$src_new" | head -n $((start - 1)) > "$tmp"
   printf '%s' "$merged_block" >> "$tmp"
-  tail -n +"$((end + 1))" "$src_new" >> "$tmp"
+  tr -d '\r' < "$src_new" | tail -n +"$((end + 1))" >> "$tmp"
   mv "$tmp" "$out"
 }
 
@@ -526,6 +545,15 @@ sync_one_folder() {
     fi
   else
     cp "$src_script" "$merged"
+  fi
+
+  # User Scripts Updater: after editing only EDIT-block settings, merge output can
+  # still differ from the plugin-saved file (formatting). If the ZIP and flash
+  # already agree outside the editable region, keep the on-disk script.
+  if [[ -f "$dest_script" && "$(basename "$dest_folder")" == "User Scripts Updater" ]] &&
+    ! files_equal "$merged" "$dest_script" &&
+    upstream_heads_and_tails_match "$dest_script" "$src_script"; then
+    cp "$dest_script" "$merged"
   fi
 
   local changed=0
