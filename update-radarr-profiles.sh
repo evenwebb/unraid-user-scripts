@@ -37,7 +37,7 @@
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
-#
+# 
 
 set -u
 
