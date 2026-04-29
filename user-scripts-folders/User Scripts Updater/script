@@ -314,7 +314,7 @@ line_starts_multiline_array() {
   # True when the line looks like: KEY=(   and does not close on the same line.
   # We intentionally keep this conservative.
   local line="$1"
-  local re='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\\('
+  local re='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\('
   if [[ ! "$line" =~ $re ]]; then
     return 1
   fi
