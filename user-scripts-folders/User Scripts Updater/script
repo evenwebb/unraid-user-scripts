@@ -448,6 +448,10 @@ main() {
     log_err "FETCH_UPDATES must be 0 or 1"
     return 1
   fi
+  if [[ "$CLEAR_CACHE" != "0" && "$CLEAR_CACHE" != "1" ]]; then
+    log_err "CLEAR_CACHE must be 0 or 1"
+    return 1
+  fi
 
   local src_folders
   src_folders="$(prepare_source_folders)" || return 1
