@@ -1,0 +1,319 @@
+#!/bin/bash
+#
+# sync-user-scripts.sh
+# Syncs Unraid User Scripts folders from GitHub ZIP (or local repo) while preserving local config edits.
+#
+# See the repo root version of this script for full documentation.
+#
+
+set -u
+set -o pipefail
+
+###############################################################################
+# EDIT FOR YOUR SETUP
+###############################################################################
+
+SOURCE_MODE="zip"
+ZIP_URL="https://github.com/evenwebb/unraid-user-scripts/archive/refs/heads/main.zip"
+REPO_DIR="/boot/config/unraid-user-scripts"
+DEST_DIR="/boot/config/plugins/user.scripts/scripts"
+FETCH_UPDATES="1"
+DRY_RUN="1"
+BACKUP_DIR="/boot/config/plugins/user.scripts/backups"
+WORK_DIR="/tmp/sync-user-scripts"
+
+###############################################################################
+
+timestamp() { date +"%Y-%m-%d %H:%M:%S"; }
+log() { echo "[$(timestamp)] $*"; }
+log_err() { echo "[$(timestamp)] ERROR: $*" >&2; }
+
+require_cmd() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1 || { log_err "Missing required command: $cmd"; exit 1; }
+}
+
+download_file() {
+  local url="$1"
+  local out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -R "$url" -o "$out"
+    return $?
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO "$out" "$url"
+    return $?
+  fi
+  log_err "Need curl or wget to download: $url"
+  return 1
+}
+
+download_file_if_modified() {
+  local url="$1"
+  local out="$2"
+  if ! command -v curl >/dev/null 2>&1; then
+    download_file "$url" "$out"
+    return $?
+  fi
+  if [[ -f "$out" ]]; then
+    local http
+    http="$(curl -sS -L -R -z "$out" -o "$out.tmp" -w '%{http_code}' "$url" 2>/dev/null || true)"
+    if [[ "$http" == "304" ]]; then
+      rm -f "$out.tmp" 2>/dev/null || true
+      return 2
+    fi
+    if [[ "$http" == "200" ]]; then
+      mv "$out.tmp" "$out"
+      return 0
+    fi
+    rm -f "$out.tmp" 2>/dev/null || true
+    log_err "Download failed (HTTP $http): $url"
+    return 1
+  fi
+  download_file "$url" "$out"
+  return $?
+}
+
+ensure_work_dir() {
+  mkdir -p "$WORK_DIR" 2>/dev/null || true
+  [[ -d "$WORK_DIR" ]] || { log_err "WORK_DIR not usable: $WORK_DIR"; exit 1; }
+}
+
+prepare_source_folders() {
+  if [[ "$SOURCE_MODE" == "local" ]]; then
+    local src="$REPO_DIR/user-scripts-folders"
+    [[ -d "$src" ]] || { log_err "Source folders not found: $src"; exit 1; }
+    echo "$src"
+    return 0
+  fi
+  [[ "$SOURCE_MODE" == "zip" ]] || { log_err "SOURCE_MODE must be 'zip' or 'local'"; exit 1; }
+  ensure_work_dir
+  local zip_path="$WORK_DIR/unraid-user-scripts.zip"
+  local extract_dir="$WORK_DIR/extracted"
+
+  if [[ "$FETCH_UPDATES" == "1" || ! -f "$zip_path" ]]; then
+    log "Checking ZIP: $ZIP_URL"
+    local dl_rc=0
+    if [[ "$DRY_RUN" == "0" ]]; then
+      download_file_if_modified "$ZIP_URL" "$zip_path" || dl_rc=$?
+      [[ $dl_rc -eq 1 ]] && exit 1
+      if [[ $dl_rc -eq 0 ]]; then
+        log "ZIP updated."
+        rm -rf "$extract_dir" 2>/dev/null || true
+      else
+        log "ZIP not modified."
+      fi
+    else
+      log "DRY_RUN: would check/download ZIP to $zip_path"
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "0" ]]; then
+    require_cmd unzip
+    rm -rf "$extract_dir" 2>/dev/null || true
+    mkdir -p "$extract_dir" 2>/dev/null || true
+    unzip -q "$zip_path" -d "$extract_dir" || { log_err "Failed to unzip: $zip_path"; exit 1; }
+    local top_dir
+    top_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)"
+    [[ -n "$top_dir" ]] || { log_err "Unexpected ZIP layout"; exit 1; }
+    local src="$top_dir/user-scripts-folders"
+    [[ -d "$src" ]] || { log_err "user-scripts-folders not found in ZIP"; exit 1; }
+    echo "$src"
+    return 0
+  fi
+
+  echo "$WORK_DIR/extracted/<repo>/user-scripts-folders"
+}
+
+get_config_range() {
+  local file="$1"
+  awk '
+    BEGIN { start=0; end=0 }
+    start==0 && $0 ~ /EDIT FOR YOUR SETUP/ { start=NR+1; next }
+    start>0 && end==0 && $0 ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)[[:space:]]*\\{/ { end=NR-1; print start, end; exit }
+    END { if (start>0 && end==0) { end=NR; print start, end } }
+  ' "$file"
+}
+
+extract_config_block() {
+  local file="$1"
+  local start end
+  read -r start end < <(get_config_range "$file" || true)
+  [[ -n "${start:-}" && -n "${end:-}" ]] || return 1
+  sed -n "${start},${end}p" "$file"
+}
+
+line_is_assignment() {
+  local line="$1"
+  [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]
+}
+
+assignment_key() {
+  local line="$1"
+  line="${line#"${line%%[![:space:]]*}"}"
+  printf '%s' "${line%%=*}"
+}
+
+merge_config_blocks() {
+  local dest_existing="$1"
+  local src_new="$2"
+  local out="$3"
+
+  local start end
+  if ! read -r start end < <(get_config_range "$src_new"); then
+    cp "$src_new" "$out"
+    return 0
+  fi
+
+  if [[ ! -f "$dest_existing" ]]; then
+    cp "$src_new" "$out"
+    return 0
+  fi
+
+  local src_block dest_block
+  src_block="$(extract_config_block "$src_new" || true)"
+  dest_block="$(extract_config_block "$dest_existing" || true)"
+  if [[ -z "$src_block" || -z "$dest_block" ]]; then
+    cp "$src_new" "$out"
+    return 0
+  fi
+
+  declare -A dest_by_key=()
+  declare -A used=()
+
+  local line key
+  while IFS= read -r line; do
+    if line_is_assignment "$line"; then
+      key="$(assignment_key "$line")"
+      dest_by_key["$key"]="$line"
+    fi
+  done <<<"$dest_block"
+
+  local merged_block=""
+  while IFS= read -r line; do
+    if line_is_assignment "$line"; then
+      key="$(assignment_key "$line")"
+      if [[ -n "${dest_by_key[$key]:-}" ]]; then
+        merged_block+="${dest_by_key[$key]}"$'\n'
+        used["$key"]=1
+      else
+        merged_block+="$line"$'\n'
+      fi
+    else
+      merged_block+="$line"$'\n'
+    fi
+  done <<<"$src_block"
+
+  local orphan_count=0
+  for key in "${!dest_by_key[@]}"; do
+    [[ -n "${used[$key]:-}" ]] && continue
+    orphan_count=$((orphan_count + 1))
+  done
+  if [[ $orphan_count -gt 0 ]]; then
+    merged_block+=$'\n# NOTE: Local-only variables preserved (not present upstream):\n'
+    for key in "${!dest_by_key[@]}"; do
+      [[ -n "${used[$key]:-}" ]] && continue
+      merged_block+="${dest_by_key[$key]}"$'\n'
+    done
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  head -n $((start - 1)) "$src_new" > "$tmp"
+  printf '%s' "$merged_block" >> "$tmp"
+  tail -n +"$((end + 1))" "$src_new" >> "$tmp"
+  mv "$tmp" "$out"
+}
+
+backup_file() {
+  local src="$1"
+  local rel="$2"
+  local stamp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  local out_dir="$BACKUP_DIR/$rel"
+  mkdir -p "$out_dir" 2>/dev/null || true
+  cp "$src" "$out_dir/script.$stamp.bak"
+}
+
+sync_one_folder() {
+  local src_folder="$1"
+  local dest_folder="$2"
+
+  local src_script="$src_folder/script"
+  local src_name="$src_folder/name"
+  local src_desc="$src_folder/description"
+
+  local dest_script="$dest_folder/script"
+  local dest_name="$dest_folder/name"
+  local dest_desc="$dest_folder/description"
+
+  if [[ ! -f "$src_script" ]]; then
+    log_err "Missing source script: $src_script"
+    return 1
+  fi
+
+  if [[ ! -d "$dest_folder" ]]; then
+    log "Installing: $(basename "$dest_folder")"
+    if [[ "$DRY_RUN" == "0" ]]; then
+      mkdir -p "$dest_folder"
+      cp "$src_script" "$dest_script"
+      [[ -f "$src_name" ]] && cp "$src_name" "$dest_name" || true
+      [[ -f "$src_desc" ]] && cp "$src_desc" "$dest_desc" || true
+    fi
+    return 0
+  fi
+
+  log "Updating: $(basename "$dest_folder")"
+  if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
+    backup_file "$dest_script" "$(basename "$dest_folder")"
+  fi
+
+  local merged
+  merged="$(mktemp)"
+  if [[ -f "$dest_script" ]]; then
+    merge_config_blocks "$dest_script" "$src_script" "$merged"
+  else
+    cp "$src_script" "$merged"
+  fi
+
+  if [[ "$DRY_RUN" == "0" ]]; then
+    cp "$merged" "$dest_script"
+    [[ -f "$src_name" ]] && cp "$src_name" "$dest_name" || true
+    [[ -f "$src_desc" ]] && cp "$src_desc" "$dest_desc" || true
+  fi
+  rm -f "$merged"
+}
+
+main() {
+  require_cmd awk
+  require_cmd sed
+  require_cmd head
+  require_cmd tail
+  require_cmd mktemp
+  require_cmd cp
+  require_cmd mv
+
+  local src_folders
+  src_folders="$(prepare_source_folders)"
+
+  if [[ "$DRY_RUN" == "0" ]]; then
+    mkdir -p "$DEST_DIR" "$BACKUP_DIR" 2>/dev/null || true
+  fi
+
+  local ok=0 fail=0 src_folder folder_name dest_folder
+  while IFS= read -r src_folder; do
+    folder_name="$(basename "$src_folder")"
+    dest_folder="$DEST_DIR/$folder_name"
+    if sync_one_folder "$src_folder" "$dest_folder"; then
+      ok=$((ok + 1))
+    else
+      fail=$((fail + 1))
+    fi
+  done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+  log "Done. Updated: $ok, Failed: $fail"
+  [[ $fail -gt 0 ]] && exit 1
+}
+
+main "$@"
+

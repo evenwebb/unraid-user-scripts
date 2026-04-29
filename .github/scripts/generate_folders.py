@@ -29,10 +29,11 @@ SCRIPT_NAMES = {
     'remove-os-metadata.sh': 'Remove OS Metadata',
     'out-of-memory-errors.sh': 'Out of Memory Errors',
     'queue-sync-nzbget.sh': 'Queue Sync NZBGet',
-    'radarr-language-guard.sh': 'Radarr Language Guard',
+    'language-guard-radarr.sh': 'Language Guard - Radarr',
     'record-disk-assignments.sh': 'Record Disk Assignments',
     'server-info-push.sh': 'Server Info Push',
-    'sonarr-language-guard.sh': 'Sonarr Language Guard',
+    'language-guard-sonarr.sh': 'Language Guard - Sonarr',
+    'sync-user-scripts.sh': 'Sync User Scripts',
     'update-radarr-profiles.sh': 'Update Radarr Profiles',
     'update-sonarr-profiles.sh': 'Update Sonarr Profiles',
     'view-docker-log-size.sh': 'View Docker Log Size',
@@ -56,10 +57,11 @@ SCRIPT_DESCRIPTIONS = {
     'remove-os-metadata.sh': 'Removes macOS metadata files (.DS_Store, ._*, .Spotlight-V100, .Trashes, etc.) and Windows metadata files (Thumbs.db, desktop.ini, etc.).',
     'out-of-memory-errors.sh': 'Checks syslog for "Out of memory" and sends an Unraid dynamix alert if found. Schedule (e.g. hourly).',
     'queue-sync-nzbget.sh': 'Syncs Sonarr/Radarr queues with NZBGet: removes *arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.',
-    'radarr-language-guard.sh': 'Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
+    'language-guard-radarr.sh': 'Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
     'record-disk-assignments.sh': 'Writes current Unraid disk assignments to /boot/config/DISK_ASSIGNMENTS.txt.',
     'server-info-push.sh': 'Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Pushover or Pushbullet.',
-    'sonarr-language-guard.sh': 'Audits Sonarr episode files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
+    'language-guard-sonarr.sh': 'Audits Sonarr episode files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
+    'sync-user-scripts.sh': 'Syncs Unraid User Scripts folders from a local git checkout while preserving local config edits during upgrades.',
     'update-radarr-profiles.sh': 'Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.',
     'update-sonarr-profiles.sh': 'Updates Sonarr quality profiles by show status: airing, upcoming, ended, continuing with no upcoming.',
     'view-docker-log-size.sh': 'Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.',
@@ -161,8 +163,11 @@ def main():
         # Get description (prefer README parsed, fallback to hardcoded)
         description = readme_descriptions.get(script_file, SCRIPT_DESCRIPTIONS.get(script_file, 'Unraid user script'))
         
-        # Sanitize folder name
-        folder_name = sanitize_folder_name(display_name)
+        # Sanitize folder name (folder name can differ from display name)
+        # Unraid User Scripts shows the friendly name from the `name` file, so we
+        # can keep that (e.g. "Language Guard - Radarr") while using a simpler
+        # folder name (e.g. "Language Guard Radarr") for nicer sorting.
+        folder_name = sanitize_folder_name(display_name.replace(" - ", " "))
         folder_path = output_dir / folder_name
         existing_folders.add(folder_name)
         

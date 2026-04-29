@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# sonarr-language-guard.sh
+# language-guard-sonarr.sh
 # Audits Sonarr episode files for acceptable audio languages, then blocklists,
 # deletes, and re-searches bad releases.
 #
@@ -15,7 +15,7 @@
 #   - triggers a targeted EpisodeSearch replacement
 #
 # Usage:
-#   ./sonarr-language-guard.sh              # Dry run by default
+#   ./language-guard-sonarr.sh              # Dry run by default
 #   Set DRY_RUN=0 in the script for live runs
 #
 # Configuration (edit script variables below):
@@ -41,32 +41,42 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Sonarr - EDIT FOR YOUR SETUP
-SONARR_URL="${SONARR_URL:-}"       # e.g. http://192.168.1.10:8989 (no trailing slash)
-SONARR_API_KEY="${SONARR_API_KEY:-}"  # Settings -> General -> API Key
+SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
+SONARR_API_KEY=""       # Settings -> General -> API Key
 
-DRY_RUN="${DRY_RUN:-1}"
-DEBUG="${DEBUG:-0}"
-USE_FFPROBE_FALLBACK="${USE_FFPROBE_FALLBACK:-0}"
+# 1 = dry run (recommended to start), 0 = live run
+DRY_RUN="1"
+
+# 1 = extra logging, 0 = normal
+DEBUG="0"
+
+# 1 = use ffprobe when Sonarr metadata is missing
+USE_FFPROBE_FALLBACK="0"
 
 # Persistent files
-LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/sonarr-language-guard.log}"
-STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/sonarr-language-guard-state.json}"
-LOCK_FILE="${LOCK_FILE:-/tmp/sonarr-language-guard.lock}"
+LOG_FILE="$SCRIPT_DIR/sonarr-language-guard.log"
+STATE_FILE="$SCRIPT_DIR/sonarr-language-guard-state.json"
+LOCK_FILE="/tmp/sonarr-language-guard.lock"
 
-RATE_LIMIT_SECONDS="${RATE_LIMIT_SECONDS:-1}"
-MAX_ACTIONS_PER_RUN="${MAX_ACTIONS_PER_RUN:-25}"
-SEARCH_COOLDOWN_DAYS="${SEARCH_COOLDOWN_DAYS:-7}"
-DELETE_ONLY_IF_REPLACEABLE="${DELETE_ONLY_IF_REPLACEABLE:-1}"
+# Throttles / safety limits
+RATE_LIMIT_SECONDS="1"
+MAX_ACTIONS_PER_RUN="25"
+SEARCH_COOLDOWN_DAYS="7"
+
+# 1 = only delete when the content is replaceable (recommended)
+DELETE_ONLY_IF_REPLACEABLE="1"
 
 # Optional targeting for tests / small batches
-SERIES_ID="${SERIES_ID:-}"
-SERIES_FILTER="${SERIES_FILTER:-}"
+SERIES_ID=""
+SERIES_FILTER=""
 
 # Optional maintenance toggles
-CLEAR_BLACKLIST="${CLEAR_BLACKLIST:-0}"
-BLACKLIST_DUMP="${BLACKLIST_DUMP:-0}"
-STATS_DUMP="${STATS_DUMP:-0}"
-FAST_DISCOVERY="${FAST_DISCOVERY:-1}"
+CLEAR_BLACKLIST="0"
+BLACKLIST_DUMP="0"
+STATS_DUMP="0"
+
+# 1 = faster discovery pass (recommended), 0 = slower shell/jq path
+FAST_DISCOVERY="1"
 
 ###############################################################################
 # Global counters

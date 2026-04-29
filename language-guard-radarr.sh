@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# radarr-language-guard.sh
+# language-guard-radarr.sh
 # Audits Radarr movie files for acceptable audio languages, then blocklists,
 # deletes, and re-searches bad releases.
 #
@@ -15,7 +15,7 @@
 #   - triggers a targeted MoviesSearch replacement
 #
 # Usage:
-#   ./radarr-language-guard.sh              # Dry run by default
+#   ./language-guard-radarr.sh              # Dry run by default
 #   Set DRY_RUN=0 in the script for live runs
 #
 # Configuration (edit script variables below):
@@ -40,31 +40,39 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Radarr - EDIT FOR YOUR SETUP
-RADARR_URL="${RADARR_URL:-}"       # e.g. http://192.168.1.10:7878 (no trailing slash)
-RADARR_API_KEY="${RADARR_API_KEY:-}"  # Settings -> General -> API Key
+RADARR_URL=""           # e.g. http://192.168.1.10:7878 (no trailing slash)
+RADARR_API_KEY=""       # Settings -> General -> API Key
 
-DRY_RUN="${DRY_RUN:-1}"
-DEBUG="${DEBUG:-0}"
-USE_FFPROBE_FALLBACK="${USE_FFPROBE_FALLBACK:-0}"
+# 1 = dry run (recommended to start), 0 = live run
+DRY_RUN="1"
+
+# 1 = extra logging, 0 = normal
+DEBUG="0"
+
+# 1 = use ffprobe when Radarr metadata is missing
+USE_FFPROBE_FALLBACK="0"
 
 # Persistent files
-LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/radarr-language-guard.log}"
-STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/radarr-language-guard-state.json}"
-LOCK_FILE="${LOCK_FILE:-/tmp/radarr-language-guard.lock}"
+LOG_FILE="$SCRIPT_DIR/radarr-language-guard.log"
+STATE_FILE="$SCRIPT_DIR/radarr-language-guard-state.json"
+LOCK_FILE="/tmp/radarr-language-guard.lock"
 
-RATE_LIMIT_SECONDS="${RATE_LIMIT_SECONDS:-1}"
-MAX_ACTIONS_PER_RUN="${MAX_ACTIONS_PER_RUN:-25}"
-SEARCH_COOLDOWN_DAYS="${SEARCH_COOLDOWN_DAYS:-7}"
+# Throttles / safety limits
+RATE_LIMIT_SECONDS="1"
+MAX_ACTIONS_PER_RUN="25"
+SEARCH_COOLDOWN_DAYS="7"
 
 # Optional targeting for tests / small batches
-MOVIE_ID="${MOVIE_ID:-}"
-MOVIE_FILTER="${MOVIE_FILTER:-}"
+MOVIE_ID=""
+MOVIE_FILTER=""
 
 # Optional maintenance toggles
-CLEAR_BLACKLIST="${CLEAR_BLACKLIST:-0}"
-BLACKLIST_DUMP="${BLACKLIST_DUMP:-0}"
-STATS_DUMP="${STATS_DUMP:-0}"
-FAST_DISCOVERY="${FAST_DISCOVERY:-1}"
+CLEAR_BLACKLIST="0"
+BLACKLIST_DUMP="0"
+STATS_DUMP="0"
+
+# 1 = faster discovery pass (recommended), 0 = slower shell/jq path
+FAST_DISCOVERY="1"
 
 ###############################################################################
 # Global counters

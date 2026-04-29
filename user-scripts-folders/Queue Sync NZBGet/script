@@ -180,7 +180,7 @@ _arr_command_post() {
     code=$(echo "$resp" | tail -n1)
     body=$(echo "$resp" | sed '$d')
     if [[ "$code" != "2"* ]]; then
-      [[ -n "$body" ]] && body=" — ${body:0:400}" || body=""
+      [[ -n "$body" ]] && body=" - ${body:0:400}" || body=""
       log_err "${app} ${label}: HTTP ${code}${body}"
       return 1
     fi
@@ -213,6 +213,15 @@ done <<< "$nzbget_ids"
 
 # Global removals counter for MAX_REMOVALS_PER_RUN
 removals_count=0
+
+# Summary counters (useful for DRY_RUN decisions)
+radarr_stale_count=0
+sonarr_stale_count=0
+radarr_removed_count=0
+sonarr_removed_count=0
+radarr_unique_movies_search=0
+sonarr_unique_episodes_search=0
+sonarr_unique_series_search=0
 
 # --- Clear failed downloads from NZBGet history ---
 clear_nzbget_failed() {
@@ -301,6 +310,7 @@ process_radarr() {
     title=$(jq -r '.title // "?"' <<< "$rec")
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
+    ((radarr_stale_count++)) || true
     local qid
     qid=$(jq -r '.id' <<< "$rec")
     to_remove="$to_remove $qid"
@@ -316,6 +326,19 @@ process_radarr() {
     fi
   done <<< "$records"
 
+  local unique_movies
+  unique_movies=$(echo "$movie_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
+  if [[ -n "$unique_movies" ]]; then
+    radarr_unique_movies_search=$(echo "$unique_movies" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    local to_remove_count
+    to_remove_count=$(echo "$to_remove" | tr ' ' '\n' | grep -c '^[0-9]' 2>/dev/null || echo 0)
+    log "Radarr: stale queue items: $radarr_stale_count; would remove: $to_remove_count; unique movies to search: $radarr_unique_movies_search"
+    return 0
+  fi
+
   if [[ "$DRY_RUN" != "1" ]]; then
     local blocklist_val="false"
     [[ "$BLOCKLIST_ENABLED" == "1" ]] && blocklist_val="true"
@@ -327,10 +350,9 @@ process_radarr() {
       _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${RADARR_API_KEY}" \
         "${RADARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1 || log_err "Radarr DELETE queue $qid failed"
       ((removals_count++))
+      ((radarr_removed_count++)) || true
       _rate_limit
     done
-    local unique_movies
-    unique_movies=$(echo "$movie_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
     if [[ -n "$unique_movies" && "$TRIGGER_SEARCH" == "1" ]]; then
       local movies_arr
       IFS=',' read -ra movies_arr <<< "$unique_movies"
@@ -365,6 +387,7 @@ process_sonarr() {
     title=$(jq -r '.title // "?"' <<< "$rec")
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
+    ((sonarr_stale_count++)) || true
     local qid
     qid=$(jq -r '.id' <<< "$rec")
     to_remove="$to_remove $qid"
@@ -385,6 +408,23 @@ process_sonarr() {
     fi
   done <<< "$records"
 
+  local unique_episodes unique_series
+  unique_episodes=$(echo "$episode_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
+  unique_series=$(echo "$series_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
+  if [[ -n "$unique_episodes" ]]; then
+    sonarr_unique_episodes_search=$(echo "$unique_episodes" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+  fi
+  if [[ -n "$unique_series" ]]; then
+    sonarr_unique_series_search=$(echo "$unique_series" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    local to_remove_count
+    to_remove_count=$(echo "$to_remove" | tr ' ' '\n' | grep -c '^[0-9]' 2>/dev/null || echo 0)
+    log "Sonarr: stale queue items: $sonarr_stale_count; would remove: $to_remove_count; unique episodes to search: $sonarr_unique_episodes_search; unique series fallback: $sonarr_unique_series_search"
+    return 0
+  fi
+
   if [[ "$DRY_RUN" != "1" ]]; then
     local blocklist_val="false"
     [[ "$BLOCKLIST_ENABLED" == "1" ]] && blocklist_val="true"
@@ -396,11 +436,9 @@ process_sonarr() {
       _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${SONARR_API_KEY}" \
         "${SONARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1 || log_err "Sonarr DELETE queue $qid failed"
       ((removals_count++))
+      ((sonarr_removed_count++)) || true
       _rate_limit
     done
-    local unique_episodes unique_series
-    unique_episodes=$(echo "$episode_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
-    unique_series=$(echo "$series_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
     if [[ "$TRIGGER_SEARCH" == "1" ]]; then
       if [[ -n "$unique_episodes" ]]; then
         local episodes_arr
@@ -430,4 +468,5 @@ log "Queue sync start (NZBGet queue has $(printf '%s' "$nzbget_ids" | grep -c . 
 clear_nzbget_failed || true
 process_radarr || log_err "Radarr processing failed"
 process_sonarr || log_err "Sonarr processing failed"
+log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
 log "Queue sync done"
