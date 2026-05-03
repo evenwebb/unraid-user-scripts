@@ -174,7 +174,9 @@ main() {
         excl=$(IFS='|'; echo "${excl_parts[*]}")
     fi
 
-    local tmp sorted total_count
+    # Bind total_count here (not only after sort) so set -u never sees an unset
+    # local when the sorted file is empty or a prior line is edited.
+    local tmp sorted total_count=0
     tmp=$(mktemp /tmp/disk-error-alert.XXXXXX) || {
         log_err "mktemp failed; cannot build match list."
         return 1
@@ -193,7 +195,6 @@ main() {
     done
 
     LC_ALL=C sort -u "$tmp" -o "$sorted" 2>/dev/null || true
-    total_count=0
     if [[ -s "$sorted" ]]; then
         total_count=$(wc -l <"$sorted" | tr -d '[:space:]')
         [[ "$total_count" != *[0-9]* ]] && total_count=0
