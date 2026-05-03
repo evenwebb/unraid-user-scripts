@@ -4,9 +4,11 @@
 # Checks syslog for md/storage errors and sends an Unraid notification if found
 #
 # Description:
-#   Greps the system log for md (RAID) and storage error messages. If any are
-#   found, sends an alert via Unraid dynamix notification. Schedule (e.g. hourly)
-#   to get notified of disk/array problems early.
+#   Greps the system log for md (RAID) and storage error messages. Counts
+#   unique matching lines (a line matching several patterns counts once).
+#   Sends an alert only when that total has increased since the last run
+#   (state file beside this script). Stable counts or decreases (e.g. log
+#   rotation) do not re-notify. State is updated only after notify succeeds.
 #
 # Usage:
 #   ./disk-error-alert.sh
@@ -17,6 +19,7 @@
 #   - ERROR_PATTERNS: Grep -E patterns for md/storage errors (edit to add/remove)
 #   - EXCLUDE_PATTERNS: Lines matching these are excluded (avoids false positives)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - STATE_FILE: Last-seen error total for increase-only alerts (see below)
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -43,7 +46,7 @@ SYSLOG_PATH="/var/log/syslog"
 # Unraid dynamix notify script
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
-# Grep -E patterns for md/storage errors (each is searched; matches are counted)
+# Grep -E patterns for md/storage errors (each is searched; union is de-duped)
 ERROR_PATTERNS=(
     "read error"
     "write error"
@@ -66,6 +69,15 @@ EXCLUDE_PATTERNS=(
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
+
+# Last-seen unique matching line count. Empty = disk-error-alert.state beside
+# this script. Only notifies when current total is greater than stored.
+STATE_FILE=""
+
+# Directory of this script (for default STATE_FILE)
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="${_SCRIPT_DIR}/disk-error-alert.state"
+unset _SCRIPT_DIR
 
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
@@ -95,6 +107,37 @@ is_safe_path() {
     return 0
 }
 
+# Read last saved total error count (non-negative integer only).
+read_stored_error_total() {
+    local f="$1" line
+    [[ ! -f "$f" || ! -r "$f" ]] && { echo 0; return 0; }
+    IFS= read -r line < "$f" || true
+    line="${line//$'\r'/}"
+    line="${line//[^0-9]/}"
+    [[ -z "$line" ]] && { echo 0; return 0; }
+    echo "$line"
+}
+
+write_stored_error_total() {
+    local f="$1" val="$2" dir tmp
+    dir=$(dirname "$f")
+    if [[ ! -d "$dir" || ! -w "$dir" ]]; then
+        log_err "Cannot write state directory: $dir"
+        return 1
+    fi
+    tmp="${f}.tmp.$$"
+    if ! printf '%s\n' "$val" > "$tmp" 2>/dev/null; then
+        log_err "Cannot write state temp file: $tmp"
+        return 1
+    fi
+    if ! mv -f "$tmp" "$f" 2>/dev/null; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_err "Cannot commit state file: $f"
+        return 1
+    fi
+    return 0
+}
+
 main() {
     if ! is_safe_path "$SYSLOG_PATH"; then
         log_err "SYSLOG_PATH invalid."
@@ -108,6 +151,10 @@ main() {
         log_err "NOTIFY_SCRIPT path invalid."
         return 1
     fi
+    if ! is_safe_path "$STATE_FILE"; then
+        log_err "STATE_FILE path invalid."
+        return 1
+    fi
 
     local pattern_count=0
     for p in "${ERROR_PATTERNS[@]}"; do
@@ -118,51 +165,91 @@ main() {
         return 1
     fi
 
-    local total_count=0
-    local -a matched_patterns=()
+    local excl_parts=()
+    for p in "${EXCLUDE_PATTERNS[@]}"; do
+        [[ -n "$p" ]] && excl_parts+=("$p")
+    done
+    local excl=""
+    if [[ ${#excl_parts[@]} -gt 0 ]]; then
+        excl=$(IFS='|'; echo "${excl_parts[*]}")
+    fi
+
+    local tmp sorted total_count
+    tmp=$(mktemp /tmp/disk-error-alert.XXXXXX) || {
+        log_err "mktemp failed; cannot build match list."
+        return 1
+    }
+    sorted="${tmp}.sorted"
+    trap 'rm -f "$tmp" "$sorted" 2>/dev/null' RETURN
+    : >"$tmp"
 
     for pattern in "${ERROR_PATTERNS[@]}"; do
         [[ -z "$pattern" ]] && continue
-        local matches count
-        matches=$(grep -E "$pattern" "$SYSLOG_PATH" 2>/dev/null || true)
-        local excl_parts=()
-        for p in "${EXCLUDE_PATTERNS[@]}"; do
-            [[ -n "$p" ]] && excl_parts+=("$p")
-        done
-        if [[ ${#excl_parts[@]} -gt 0 ]]; then
-            local excl
-            excl=$(IFS='|'; echo "${excl_parts[*]}")
-            matches=$(echo "$matches" | grep -v -E "$excl" 2>/dev/null || true)
-        fi
-        count=0
-        if [[ -n "$matches" ]]; then
-            count=$(echo "$matches" | grep -c . 2>/dev/null)
-            [[ -z "$count" || "$count" != *[0-9]* ]] && count=0
-        fi
-        if [[ "$count" -gt 0 ]]; then
-            total_count=$((total_count + count))
-            matched_patterns+=("$pattern: $count")
+        if [[ -n "$excl" ]]; then
+            grep -a -E "$pattern" "$SYSLOG_PATH" 2>/dev/null | grep -a -v -E "$excl" >>"$tmp" || true
+        else
+            grep -a -E "$pattern" "$SYSLOG_PATH" 2>/dev/null >>"$tmp" || true
         fi
     done
 
+    LC_ALL=C sort -u "$tmp" -o "$sorted" 2>/dev/null || true
+    total_count=0
+    if [[ -s "$sorted" ]]; then
+        total_count=$(wc -l <"$sorted" | tr -d '[:space:]')
+        [[ "$total_count" != *[0-9]* ]] && total_count=0
+    fi
+
+    local last_count
+    last_count=$(read_stored_error_total "$STATE_FILE")
+
+    if [[ $total_count -lt $last_count ]]; then
+        log "Error count decreased ($last_count -> $total_count); treating as log rotation or cleared syslog. Updating baseline, no notification."
+        write_stored_error_total "$STATE_FILE" "$total_count" || true
+        last_count=$total_count
+    fi
+
     if [[ $total_count -gt 0 ]]; then
-        log "Disk/storage error(s) found in syslog ($total_count occurrence(s))."
-        log "Matched: ${matched_patterns[*]}"
-        if [[ -n "$NOTIFY_SCRIPT" ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
-            local detail message
-            if [[ $total_count -eq 1 ]]; then
-                detail="1 disk/storage error found in syslog. Check Tools > Diagnostics for details."
-            else
-                detail="$total_count disk/storage errors found in syslog. Check Tools > Diagnostics for details."
-            fi
-            message=$(printf '  • %s\n' "${matched_patterns[@]}")
-            message="${message%$'\n'}"
-            "$NOTIFY_SCRIPT" -e "Disk Error Alert" -s "Disk Storage Errors Detected" \
-                -d "$detail" -m "$message" -i "alert"
+        log "Disk/storage error(s) in syslog ($total_count unique line(s); last recorded: $last_count)."
+        if [[ $total_count -le 5 ]]; then
+            log "Matching lines:"$'\n'"$(sed 's/^/  /' "$sorted")"
         else
-            log "Warning: NOTIFY_SCRIPT not executable or empty, alert not sent."
+            log "First 3 matching lines:"$'\n'"$(head -n 3 "$sorted" | sed 's/^/  /')"
+        fi
+        if [[ $total_count -gt $last_count ]]; then
+            if [[ -n "$NOTIFY_SCRIPT" ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
+                local detail message lines_max notify_ec
+                lines_max=30
+                if [[ $total_count -eq 1 ]]; then
+                    detail="1 unique disk/storage error line in syslog (count increased). Check Tools > Diagnostics for details."
+                else
+                    detail="$total_count unique disk/storage error lines in syslog (count increased). Check Tools > Diagnostics for details."
+                fi
+                if [[ $total_count -le $lines_max ]]; then
+                    message=$(sed 's/^/  • /' "$sorted")
+                else
+                    message=$(head -n "$lines_max" "$sorted" | sed 's/^/  • /')
+                    message+=$'\n'"  … and $((total_count - lines_max)) more line(s)."
+                fi
+                message="${message%$'\n'}"
+                notify_ec=0
+                "$NOTIFY_SCRIPT" -e "Disk Error Alert" -s "Disk Storage Errors Detected" \
+                    -d "$detail" -m "$message" -i "alert" || notify_ec=$?
+                if [[ $notify_ec -eq 0 ]]; then
+                    write_stored_error_total "$STATE_FILE" "$total_count" || true
+                else
+                    log_err "notify exited with status $notify_ec; state not updated (will retry if count stays above baseline)."
+                fi
+            else
+                log "Warning: NOTIFY_SCRIPT not executable or empty, alert not sent."
+            fi
+        else
+            log "Error count unchanged or not above baseline; no notification sent."
         fi
         return 1
+    fi
+
+    if [[ $last_count -ne 0 ]]; then
+        write_stored_error_total "$STATE_FILE" 0 || true
     fi
     log "No disk/storage errors found in syslog."
     return 0
