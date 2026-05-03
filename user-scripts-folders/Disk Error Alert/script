@@ -119,19 +119,20 @@ read_stored_error_total() {
 }
 
 write_stored_error_total() {
-    local f="$1" val="$2" dir tmp
+    # Use state_tmp (not tmp) so this never shadows main()'s temp path local.
+    local f="$1" val="$2" dir state_tmp
     dir=$(dirname "$f")
     if [[ ! -d "$dir" || ! -w "$dir" ]]; then
         log_err "Cannot write state directory: $dir"
         return 1
     fi
-    tmp="${f}.tmp.$$"
-    if ! printf '%s\n' "$val" > "$tmp" 2>/dev/null; then
-        log_err "Cannot write state temp file: $tmp"
+    state_tmp="${f}.tmp.$$"
+    if ! printf '%s\n' "$val" > "$state_tmp" 2>/dev/null; then
+        log_err "Cannot write state temp file: $state_tmp"
         return 1
     fi
-    if ! mv -f "$tmp" "$f" 2>/dev/null; then
-        rm -f "$tmp" 2>/dev/null || true
+    if ! mv -f "$state_tmp" "$f" 2>/dev/null; then
+        rm -f "$state_tmp" 2>/dev/null || true
         log_err "Cannot commit state file: $f"
         return 1
     fi
@@ -174,15 +175,18 @@ main() {
         excl=$(IFS='|'; echo "${excl_parts[*]}")
     fi
 
-    # Bind total_count here (not only after sort) so set -u never sees an unset
-    # local when the sorted file is empty or a prior line is edited.
-    local tmp sorted total_count=0
+    # Keep tmp/sorted always set (set -u) and avoid "$tmp" in RETURN (nounset-safe).
+    local tmp="" sorted="" total_count=0
     tmp=$(mktemp /tmp/disk-error-alert.XXXXXX) || {
         log_err "mktemp failed; cannot build match list."
         return 1
     }
+    if [[ -z "$tmp" ]]; then
+        log_err "mktemp returned an empty path."
+        return 1
+    fi
     sorted="${tmp}.sorted"
-    trap 'rm -f "$tmp" "$sorted" 2>/dev/null' RETURN
+    trap 'rm -f "${tmp-}" "${sorted-}" 2>/dev/null' RETURN
     : >"$tmp"
 
     for pattern in "${ERROR_PATTERNS[@]}"; do
