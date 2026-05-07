@@ -120,6 +120,14 @@ debug() {
   fi
 }
 
+# Run jq with JSON from a bash variable via pipe only (never <<< here-strings on JSON:
+# smart quotes / GUI paste bugs cause "unexpected EOF" and subtle parse errors).
+jq_read() {
+  local _jq_json="$1"
+  shift || return 2
+  printf '%s' "$_jq_json" | jq "$@"
+}
+
 set_has_line() {
   local haystack="$1"
   local needle="$2"
@@ -356,7 +364,7 @@ api_post_status() {
 
 api_ok_or_increment_failures() {
   local payload="$1"
-  if ! printf '%s' "$payload" | jq empty >/dev/null 2>&1; then
+  if ! jq_read "$payload" empty >/dev/null 2>&1; then
     API_FAILURES=$((API_FAILURES + 1))
     return 1
   fi
@@ -370,7 +378,7 @@ verify_sonarr_connection() {
     exit 1
   }
 
-  app_name="$(printf '%s' "$payload" | jq -r '.appName // empty')"
+  app_name="$(jq_read "$payload" -r '.appName // empty')"
   if [[ "$app_name" != "Sonarr" ]]; then
     log_line "ERROR" "Target is not Sonarr or API key is invalid"
     exit 1
@@ -472,9 +480,9 @@ get_ffprobe_languages() {
 extract_candidate_languages() {
   local file_json="$1"
   local sonarr_langs sonarr_audio ffprobe_langs path
-  sonarr_langs="$(jq -r '(.languages // [])[]?.name // empty' <<<"$file_json" 2>/dev/null || true)"
-  sonarr_audio="$(jq -r '.mediaInfo.audioLanguages // empty' <<<"$file_json" 2>/dev/null || true)"
-  path="$(jq -r '.path // empty' <<<"$file_json")"
+  sonarr_langs="$(jq_read "$file_json" -r '(.languages // [])[]?.name // empty' 2>/dev/null || true)"
+  sonarr_audio="$(jq_read "$file_json" -r '.mediaInfo.audioLanguages // empty' 2>/dev/null || true)"
+  path="$(jq_read "$file_json" -r '.path // empty')"
 
   {
     if [[ -n "$sonarr_langs" ]]; then
@@ -523,7 +531,7 @@ fetch_series_payload() {
 
 filter_series_payload() {
   local payload="$1"
-  jq -c \
+  jq_read "$payload" -c \
     --arg sid "$SERIES_ID" \
     --arg sfilter "$(printf '%s' "$SERIES_FILTER" | tr '[:upper:]' '[:lower:]')" '
       [
@@ -531,7 +539,7 @@ filter_series_payload() {
         | select(($sid == "") or ((.id | tostring) == $sid))
         | select(($sfilter == "") or ((.title | ascii_downcase) | contains($sfilter)))
       ]
-    ' <<<"$payload"
+    '
 }
 
 fetch_episode_files_for_series() {
@@ -860,7 +868,7 @@ find_matching_history() {
     return
   }
 
-  jq -c \
+  jq_read "$history" -c \
     --argjson file_id "$file_id" \
     --arg path "$path" \
     --arg scene_name "$scene_name" '
@@ -877,13 +885,13 @@ find_matching_history() {
           imported: (map(select(.eventType == "downloadFolderImported"))[0] // null),
           grabbed: (map(select(.eventType == "grabbed"))[0] // null)
         }
-    ' <<<"$history"
+    '
 }
 
 resolve_release_identity() {
   local history_json="$1"
   local fallback_title="$2"
-  jq -c --arg fallback_title "$fallback_title" '
+  jq_read "$history_json" -c --arg fallback_title "$fallback_title" '
     .imported as $imported
     | .grabbed as $grabbed
     | {
@@ -894,7 +902,7 @@ resolve_release_identity() {
         imported_event_id: ($imported.id // null),
         grabbed_event_id: ($grabbed.id // null)
       }
-  ' <<<"$history_json"
+  '
 }
 
 ###############################################################################
@@ -905,18 +913,18 @@ episode_ids_csv_from_file() {
   local file_json="$1"
   local episodes_json="$2"
   local direct_ids file_id
-  direct_ids="$(jq -r '
+  direct_ids="$(jq_read "$file_json" -r '
     if (.episodeIds // []) | length > 0
     then (.episodeIds | map(tostring) | join(","))
     else ""
     end
-  ' <<<"$file_json")"
+  ')"
   if [[ -n "$direct_ids" ]]; then
     printf '%s' "$direct_ids"
     return
   fi
-  file_id="$(jq -r '.id' <<<"$file_json")"
-  jq -r \
+  file_id="$(jq_read "$file_json" -r '.id')"
+  jq_read "$episodes_json" -r \
     --argjson file_id "$file_id" '
       [
         .[]
@@ -924,16 +932,16 @@ episode_ids_csv_from_file() {
         | .id
         | tostring
       ] | join(",")
-    ' <<<"$episodes_json"
+    '
 }
 
 episode_any_unmonitored() {
   local episodes_json="$1"
   local episode_ids_csv="$2"
-  jq -e --arg ids "$episode_ids_csv" '
+  jq_read "$episodes_json" -e --arg ids "$episode_ids_csv" '
     ($ids | split(",") | map(tonumber)) as $wanted
     | any(.[]; (.id as $id | ($wanted | index($id))) != null and (.monitored != true))
-  ' <<<"$episodes_json" >/dev/null 2>&1
+  ' >/dev/null 2>&1
 }
 
 file_replaceable() {
@@ -941,7 +949,7 @@ file_replaceable() {
   local episodes_json="$2"
   local episode_ids_csv="$3"
 
-  if ! printf '%s' "$series_json" | jq -e '.monitored == true' >/dev/null 2>&1; then
+  if ! jq_read "$series_json" -e '.monitored == true' >/dev/null 2>&1; then
     return 1
   fi
 
@@ -957,7 +965,7 @@ file_has_unmonitored_content() {
   local episodes_json="$2"
   local episode_ids_csv="$3"
 
-  if ! printf '%s' "$series_json" | jq -e '.monitored == true' >/dev/null 2>&1; then
+  if ! jq_read "$series_json" -e '.monitored == true' >/dev/null 2>&1; then
     return 0
   fi
 
@@ -983,11 +991,11 @@ process_invalid_file() {
   local guid source_title normalized_title primary_key secondary_key history_id
   local blacklist_repeat="0" release_key=""
 
-  series_id="$(jq -r '.id' <<<"$series_json")"
-  series_title="$(jq -r '.title' <<<"$series_json")"
-  file_id="$(jq -r '.id' <<<"$file_json")"
-  path="$(jq -r '.path // empty' <<<"$file_json")"
-  scene_name="$(jq -r '.sceneName // empty' <<<"$file_json")"
+  series_id="$(jq_read "$series_json" -r '.id')"
+  series_title="$(jq_read "$series_json" -r '.title')"
+  file_id="$(jq_read "$file_json" -r '.id')"
+  path="$(jq_read "$file_json" -r '.path // empty')"
+  scene_name="$(jq_read "$file_json" -r '.sceneName // empty')"
   episode_ids_csv="$(episode_ids_csv_from_file "$file_json" "$episodes_json")"
 
   INVALID_FILES_FOUND=$((INVALID_FILES_FOUND + 1))
@@ -1021,9 +1029,9 @@ process_invalid_file() {
 
   history_json="$(find_matching_history "${episode_ids[0]}" "$file_id" "$path" "$scene_name")"
   identity_json="$(resolve_release_identity "$history_json" "$scene_name")"
-  guid="$(jq -r '.guid // empty' <<<"$identity_json")"
-  source_title="$(jq -r '.source_title // empty' <<<"$identity_json")"
-  history_id="$(jq -r '.history_id // empty' <<<"$identity_json")"
+  guid="$(jq_read "$identity_json" -r '.guid // empty')"
+  source_title="$(jq_read "$identity_json" -r '.source_title // empty')"
+  history_id="$(jq_read "$identity_json" -r '.history_id // empty')"
   normalized_title="$(normalize_release_title "${source_title:-${scene_name:-$(basename "$path")}}")"
 
   if [[ -n "$guid" ]]; then
@@ -1097,23 +1105,23 @@ process_invalid_candidate() {
   local series_id series_title reason detected_langs
   local series_json episodes_json file_json
 
-  series_id="$(jq -r '.series_id' <<<"$candidate_json")"
-  series_title="$(jq -r '.series_title' <<<"$candidate_json")"
-  reason="$(jq -r '.reason' <<<"$candidate_json")"
-  detected_langs="$(jq -r '.detected_languages | join(",")' <<<"$candidate_json")"
+  series_id="$(jq_read "$candidate_json" -r '.series_id')"
+  series_title="$(jq_read "$candidate_json" -r '.series_title')"
+  reason="$(jq_read "$candidate_json" -r '.reason')"
+  detected_langs="$(jq_read "$candidate_json" -r '.detected_languages | join(",")')"
 
-  series_json="$(jq -c '{
+  series_json="$(jq_read "$candidate_json" -c '{
     id: .series_id,
     title: .series_title,
     monitored: true
-  }' <<<"$candidate_json")"
-  episodes_json="$(jq -c '.episode_meta' <<<"$candidate_json")"
-  file_json="$(jq -c '{
+  }')"
+  episodes_json="$(jq_read "$candidate_json" -c '.episode_meta')"
+  file_json="$(jq_read "$candidate_json" -c '{
     id: .file_id,
     path: .path,
     sceneName: (.scene_name // ""),
     episodeIds: (.episode_ids // [])
-  }' <<<"$candidate_json")"
+  }')"
 
   process_invalid_file "$series_json" "$file_json" "$episodes_json" "$reason" "$detected_langs"
 }
@@ -1127,7 +1135,7 @@ process_file() {
   local acceptable_langs=()
   local lang
 
-  if ! printf '%s' "$file_json" | jq -e '.id != null' >/dev/null 2>&1; then
+  if ! jq_read "$file_json" -e '.id != null' >/dev/null 2>&1; then
     return
   fi
 
@@ -1135,7 +1143,7 @@ process_file() {
   if (( FILES_SCANNED % 250 == 0 )); then
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
   fi
-  original_language="$(jq -r '.originalLanguage.name // empty' <<<"$series_json" | while IFS= read -r l; do canonical_language "$l"; done)"
+  original_language="$(jq_read "$series_json" -r '.originalLanguage.name // empty' | while IFS= read -r l; do canonical_language "$l"; done)"
 
   while IFS= read -r lang; do
     [[ -n "$lang" ]] && detected_langs+=("$lang")
@@ -1143,7 +1151,7 @@ process_file() {
 
   if [[ ${#detected_langs[@]} -eq 0 ]]; then
     SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
-    log_line "WARN" "skip_ambiguous no_languages file_id=$(jq -r '.id' <<<"$file_json") path=\"$(jq -r '.path' <<<"$file_json")\""
+    log_line "WARN" "skip_ambiguous no_languages file_id=$(jq_read "$file_json" -r '.id') path=\"$(jq_read "$file_json" -r '.path')\""
     return
   fi
 
@@ -1155,7 +1163,7 @@ process_file() {
   for lang in "${detected_langs[@]}"; do
     if language_list_contains "$lang" "${acceptable_langs[@]}"; then
       VALID_FILES_KEPT=$((VALID_FILES_KEPT + 1))
-      debug "keep_file file_id=$(jq -r '.id' <<<"$file_json") acceptable_language=$lang"
+      debug "keep_file file_id=$(jq_read "$file_json" -r '.id') acceptable_language=$lang"
       return
     fi
   done
@@ -1175,8 +1183,8 @@ process_series() {
   local series_json="$1"
   local series_id="" series_title="" episode_files_json="" episodes_json="" file_json=""
 
-  series_id="$(jq -r '.id' <<<"$series_json")"
-  series_title="$(jq -r '.title' <<<"$series_json")"
+  series_id="$(jq_read "$series_json" -r '.id')"
+  series_title="$(jq_read "$series_json" -r '.title')"
   SERIES_SCANNED=$((SERIES_SCANNED + 1))
 
   log_line "INFO" "scan_series count=$SERIES_SCANNED title=\"$series_title\" id=$series_id"
@@ -1200,7 +1208,7 @@ process_series() {
       log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
       return
     fi
-  done < <(jq -c '.[]' <<< "${episode_files_json:-[]}")
+  done < <(jq_read "${episode_files_json:-[]}" -c '.[]')
 }
 
 discover_candidates_fast() {
@@ -1431,28 +1439,28 @@ main() {
   }
 
   if [[ "$FAST_DISCOVERY" == "1" ]]; then
-    local discovery_output progress_lines discovery_json
+    local discovery_output progress_lines discovery_json cand_len candidate_json
     discovery_output="$(discover_candidates_fast)"
-    progress_lines="$(printf '%s\n' "$discovery_output" | jq -cr 'select(.progress?)' 2>/dev/null || true)"
+    progress_lines="$(jq_read "$discovery_output" -cr "select(.progress?)" 2>/dev/null || true)"
     if [[ -n "$progress_lines" ]]; then
       while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        log_line "INFO" "scan_progress series_scanned=$(jq -r '.progress' <<<"$line")"
+        log_line "INFO" "scan_progress series_scanned=$(jq_read "$line" -r ".progress")"
       done <<<"$progress_lines"
     fi
     discovery_json="$(printf '%s\n' "$discovery_output" | tail -n 1)"
-    if ! printf '%s' "$discovery_json" | jq -e '.summary and .candidates' >/dev/null 2>&1; then
+    if ! jq_read "$discovery_json" -e ".summary and .candidates" >/dev/null 2>&1; then
       log_line "ERROR" "Fast discovery failed"
       exit 1
     fi
-    SERIES_SCANNED="$(jq -r '.summary.series_scanned' <<<"$discovery_json")"
-    FILES_SCANNED="$(jq -r '.summary.files_scanned' <<<"$discovery_json")"
-    VALID_FILES_KEPT="$(jq -r '.summary.valid_files_kept' <<<"$discovery_json")"
+    SERIES_SCANNED="$(jq_read "$discovery_json" -r ".summary.series_scanned")"
+    FILES_SCANNED="$(jq_read "$discovery_json" -r ".summary.files_scanned")"
+    VALID_FILES_KEPT="$(jq_read "$discovery_json" -r ".summary.valid_files_kept")"
     INVALID_FILES_FOUND=0
-    SKIPPED_AMBIGUOUS="$(jq -r '.summary.skipped_ambiguous' <<<"$discovery_json")"
-    SKIPPED_UNMONITORED="$(jq -r '.summary.skipped_unmonitored' <<<"$discovery_json")"
-    log_line "INFO" "fast_discovery_complete series_scanned=$SERIES_SCANNED files_scanned=$FILES_SCANNED candidates=$(jq '.candidates | length' <<<"$discovery_json")"
-    local candidate_json
+    SKIPPED_AMBIGUOUS="$(jq_read "$discovery_json" -r ".summary.skipped_ambiguous")"
+    SKIPPED_UNMONITORED="$(jq_read "$discovery_json" -r ".summary.skipped_unmonitored")"
+    cand_len="$(jq_read "$discovery_json" '.candidates | length')"
+    log_line "INFO" "fast_discovery_complete series_scanned=$SERIES_SCANNED files_scanned=$FILES_SCANNED candidates=$cand_len"
     while IFS= read -r candidate_json; do
       [[ -z "$candidate_json" ]] && continue
       process_invalid_candidate "$candidate_json"
@@ -1460,10 +1468,10 @@ main() {
         log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
         break
       fi
-    done < <(jq -c '.candidates[]' <<<"$discovery_json")
+    done < <(jq_read "$discovery_json" -c ".candidates[]")
   else
     filtered_series="$(filter_series_payload "$series_payload")"
-    if ! printf '%s' "$filtered_series" | jq -e 'length > 0' >/dev/null 2>&1; then
+    if ! jq_read "$filtered_series" -e "length > 0" >/dev/null 2>&1; then
       log_line "WARN" "No series matched filters"
       exit 0
     fi
@@ -1475,7 +1483,7 @@ main() {
       if (( ACTION_COUNT >= MAX_ACTIONS_PER_RUN )); then
         break
       fi
-    done < <(jq -c '.[]' <<<"$filtered_series")
+    done < <(jq_read "$filtered_series" -c ".[]")
   fi
 
   record_run_stats
