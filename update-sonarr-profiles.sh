@@ -289,16 +289,10 @@ main() {
 
     local TOTAL=0
     local -a to_update=()
-    while IFS= read -r obj; do
-        [[ -z "$obj" ]] && continue
-        local id title status next_airing cur_prof
-        id=$(echo "$obj" | jq -r '.id')
-        title=$(echo "$obj" | jq -r '.title')
-        status=$(echo "$obj" | jq -r '.status')
-        next_airing=$(echo "$obj" | jq -r '.nextAiring // ""')
-        cur_prof=$(echo "$obj" | jq -r '.qualityProfileId')
+    while IFS=$'\t' read -r id title status next_airing cur_prof monitored; do
+        [[ -z "$id" ]] && continue
 
-        if [[ "$MONITORED_ONLY" == "1" ]] && [[ "$(echo "$obj" | jq -r '.monitored')" != "true" ]]; then
+        if [[ "$MONITORED_ONLY" == "1" ]] && [[ "$monitored" != "true" ]]; then
             continue
         fi
 
@@ -332,7 +326,7 @@ main() {
             to_update+=("${id}"$'\t'"${title}"$'\t'"${target_prof}"$'\t'"${category}")
             TOTAL=$((TOTAL + 1))
         fi
-    done < <(echo "$series_json" | jq -c '.[]')
+    done < <(echo "$series_json" | jq -r '.[] | [.id, (.title // ""), (.status // ""), (.nextAiring // ""), (.qualityProfileId // 0), (.monitored // false)] | @tsv')
 
     log "Found $TOTAL series that need a quality profile update."
 
@@ -349,7 +343,7 @@ main() {
         [[ $TOTAL -gt $max_updates ]] && log "Capping at $max_updates updates (MAX_UPDATES_PER_RUN)."
     fi
 
-    local COUNT=0 AIRING=0 UPCOMING=0 ENDED=0 CONTINUING=0
+    local COUNT=0 AIRING=0 UPCOMING=0 ENDED=0 CONTINUING=0 ERRORS=0
     local search_ids=()
 
     for entry in "${to_update[@]}"; do
@@ -365,23 +359,31 @@ main() {
             full_series=$("${curl_cmd[@]}" -H "X-Api-Key: $SONARR_API_KEY" "$SONARR_URL/api/v3/series/$id" 2>/dev/null | sed '$d')
             if ! echo "$full_series" | jq -e . >/dev/null 2>&1; then
                 log_err "Failed to fetch series $id for update."
+                ERRORS=$((ERRORS + 1))
             else
                 updated_series=$(echo "$full_series" | jq --argjson pid "$target_prof" '.qualityProfileId = $pid')
                 if sonarr_put "$SONARR_URL/api/v3/series/$id" "$updated_series"; then
+                    case "$category" in
+                        airing) AIRING=$((AIRING + 1)) ;;
+                        upcoming) UPCOMING=$((UPCOMING + 1)) ;;
+                        ended) ENDED=$((ENDED + 1)) ;;
+                        continuing) CONTINUING=$((CONTINUING + 1)) ;;
+                    esac
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Updated: $title ($category) → profile $target_prof"
                     [[ "$TRIGGER_SEARCH" == "1" ]] && search_ids+=("$id")
                 else
                     log_err "Failed to update: $title ($id)"
+                    ERRORS=$((ERRORS + 1))
                 fi
             fi
+        else
+            case "$category" in
+                airing) AIRING=$((AIRING + 1)) ;;
+                upcoming) UPCOMING=$((UPCOMING + 1)) ;;
+                ended) ENDED=$((ENDED + 1)) ;;
+                continuing) CONTINUING=$((CONTINUING + 1)) ;;
+            esac
         fi
-
-        case "$category" in
-            airing) AIRING=$((AIRING + 1)) ;;
-            upcoming) UPCOMING=$((UPCOMING + 1)) ;;
-            ended) ENDED=$((ENDED + 1)) ;;
-            continuing) CONTINUING=$((CONTINUING + 1)) ;;
-        esac
 
         [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
     done
@@ -401,10 +403,10 @@ main() {
         fi
     fi
 
-    local summary="Done. Airing: $AIRING, Upcoming: $UPCOMING, Ended: $ENDED, Continuing: $CONTINUING. Dry-run: $DRY_RUN"
+    local summary="Done. Airing: $AIRING, Upcoming: $UPCOMING, Ended: $ENDED, Continuing: $CONTINUING. Errors: $ERRORS. Dry-run: $DRY_RUN"
     log "$summary"
     send_unraid_notify "Update Sonarr Profiles" "Sonarr profiles" \
-        "Sonarr profiles: $AIRING airing, $UPCOMING upcoming, $ENDED ended, $CONTINUING continuing. Dry-run: $DRY_RUN"
+        "Sonarr profiles: $AIRING airing, $UPCOMING upcoming, $ENDED ended, $CONTINUING continuing, $ERRORS errors. Dry-run: $DRY_RUN"
 }
 
 main "$@"

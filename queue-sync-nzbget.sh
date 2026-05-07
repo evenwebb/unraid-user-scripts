@@ -106,6 +106,20 @@ log_fmt() {
     log "$_msg"
 }
 
+radarr_queue_fields() {
+    jq -r '[.protocol // "", .downloadId // "", .movieId // "", .title // "?", .id] | @tsv'
+}
+
+sonarr_queue_fields() {
+    jq -r '[.protocol // "", .downloadId // "", .title // "?", .id, (([
+      .episodeId,
+      .episode.id,
+      .episode.episodeId,
+      (.episodes[]?.id),
+      (.episodes[]?.episodeId)
+    ] | map(select(. != null and . != "")) | unique | join(","))), (.seriesId // .series?.id // "")] | @tsv'
+}
+
 # Runtime normalization and validation (not part of editable config)
 
 # Strip trailing slashes
@@ -242,6 +256,8 @@ radarr_stale_count=0
 sonarr_stale_count=0
 radarr_removed_count=0
 sonarr_removed_count=0
+radarr_remove_failures=0
+sonarr_remove_failures=0
 radarr_unique_movies_search=0
 sonarr_unique_episodes_search=0
 sonarr_unique_series_search=0
@@ -340,15 +356,10 @@ process_radarr() {
   while IFS= read -r rec; do
     [[ -z "$rec" ]] && continue
     local proto did mid title
-    proto=$(jq -r '.protocol // ""' <<< "$rec")
-    did=$(jq -r '.downloadId // ""' <<< "$rec")
-    mid=$(jq -r '.movieId // empty' <<< "$rec")
-    title=$(jq -r '.title // "?"' <<< "$rec")
+    IFS=$'\t' read -r proto did mid title qid <<< "$(radarr_queue_fields <<< "$rec")"
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((radarr_stale_count++)) || true
-    local qid
-    qid=$(jq -r '.id' <<< "$rec")
     to_remove="$to_remove $qid"
     if [[ -n "$mid" ]]; then movie_ids="$movie_ids $mid"; fi
     local safe_title="${title//\$/\\$}"
@@ -383,11 +394,15 @@ process_radarr() {
     for qid in "${qid_arr[@]}"; do
       [[ -z "$qid" ]] && continue
       [[ "$MAX_REMOVALS_PER_RUN" -gt 0 && "$removals_count" -ge "$MAX_REMOVALS_PER_RUN" ]] && { log "Radarr: stopped (MAX_REMOVALS_PER_RUN=$MAX_REMOVALS_PER_RUN reached)"; break; }
-      _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${RADARR_API_KEY}" \
-        "${RADARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1 || log_err "Radarr DELETE queue $qid failed"
-      ((removals_count++))
-      ((radarr_removed_count++)) || true
-      _rate_limit
+      if _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${RADARR_API_KEY}" \
+        "${RADARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1; then
+        ((removals_count++))
+        ((radarr_removed_count++)) || true
+        _rate_limit
+      else
+        ((radarr_remove_failures++)) || true
+        log_err "Radarr DELETE queue $qid failed"
+      fi
     done
     if [[ -n "$unique_movies" && "$TRIGGER_SEARCH" == "1" ]]; then
       local movies_arr
@@ -417,23 +432,17 @@ process_sonarr() {
   series_ids=""
   while IFS= read -r rec; do
     [[ -z "$rec" ]] && continue
-    local proto did title eid
-    proto=$(jq -r '.protocol // ""' <<< "$rec")
-    did=$(jq -r '.downloadId // ""' <<< "$rec")
-    title=$(jq -r '.title // "?"' <<< "$rec")
+    local proto did title episode_ids_csv sid
+    IFS=$'\t' read -r proto did title qid episode_ids_csv sid <<< "$(sonarr_queue_fields <<< "$rec")"
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((sonarr_stale_count++)) || true
-    local qid
-    qid=$(jq -r '.id' <<< "$rec")
     to_remove="$to_remove $qid"
     local safe_title="${title//\$/\\$}"
     safe_title="${safe_title//\`/\\`}"
-    while read -r eid; do
-      [[ -n "$eid" && "$eid" != "null" ]] && episode_ids="$episode_ids $eid"
-    done < <(jq -r '(.episodeId // empty), (.episode.id // empty), (.episode.episodeId // empty), (.episodes[]?.id // empty), (.episodes[]?.episodeId // empty)' <<< "$rec")
-    local sid
-    sid=$(jq -r '.seriesId // .series?.id // empty' <<< "$rec")
+    if [[ -n "$episode_ids_csv" ]]; then
+      episode_ids+=" ${episode_ids_csv//,/ }"
+    fi
     [[ -n "$sid" && "$sid" != "null" ]] && series_ids="$series_ids $sid"
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
@@ -469,11 +478,15 @@ process_sonarr() {
     for qid in "${qid_arr[@]}"; do
       [[ -z "$qid" ]] && continue
       [[ "$MAX_REMOVALS_PER_RUN" -gt 0 && "$removals_count" -ge "$MAX_REMOVALS_PER_RUN" ]] && { log "Sonarr: stopped (MAX_REMOVALS_PER_RUN=$MAX_REMOVALS_PER_RUN reached)"; break; }
-      _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${SONARR_API_KEY}" \
-        "${SONARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1 || log_err "Sonarr DELETE queue $qid failed"
-      ((removals_count++))
-      ((sonarr_removed_count++)) || true
-      _rate_limit
+      if _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${SONARR_API_KEY}" \
+        "${SONARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1; then
+        ((removals_count++))
+        ((sonarr_removed_count++)) || true
+        _rate_limit
+      else
+        ((sonarr_remove_failures++)) || true
+        log_err "Sonarr DELETE queue $qid failed"
+      fi
     done
     if [[ "$TRIGGER_SEARCH" == "1" ]]; then
       if [[ -n "$unique_episodes" ]]; then
@@ -504,5 +517,5 @@ log "Queue sync start (NZBGet queue has $(printf '%s' "$nzbget_ids" | grep -c . 
 clear_nzbget_failed || true
 process_radarr || log_err "Radarr processing failed"
 process_sonarr || log_err "Sonarr processing failed"
-log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
+log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count remove_failures=$radarr_remove_failures unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count remove_failures=$sonarr_remove_failures unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
 log "Queue sync done"

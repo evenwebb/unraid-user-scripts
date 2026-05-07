@@ -538,6 +538,33 @@ backup_file() {
   cp "$src" "$out_dir/$base.$stamp.bak"
 }
 
+atomic_replace_file() {
+  local src="$1"
+  local dest="$2"
+  local dest_dir dest_base tmp
+  dest_dir="$(dirname "$dest")"
+  dest_base="$(basename "$dest")"
+  mkdir -p "$dest_dir" 2>/dev/null || true
+  tmp="$(mktemp "$dest_dir/.${dest_base}.tmp.XXXXXX")" || return 1
+  cp "$src" "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$dest"
+}
+
+validate_bash_script() {
+  local script_path="$1"
+  local label="${2:-script}"
+  if ! bash -n "$script_path" >/dev/null 2>&1; then
+    log_err "Syntax validation failed for $label: $script_path"
+    bash -n "$script_path" 2>&1 | while IFS= read -r line; do
+      log_stderr "  $line"
+    done
+    return 1
+  fi
+}
+
 sync_one_folder() {
   local src_folder="$1"
   local dest_folder="$2"
@@ -555,6 +582,8 @@ sync_one_folder() {
     return 1
   fi
 
+  validate_bash_script "$src_script" "source script $(basename "$src_folder")" || return 1
+
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
       log "Skipping missing folder (not installed): $(basename "$dest_folder")"
@@ -563,9 +592,9 @@ sync_one_folder() {
     log "Installing new folder: $(basename "$dest_folder")"
     if [[ "$DRY_RUN" == "0" ]]; then
       mkdir -p "$dest_folder"
-      cp "$src_script" "$dest_script"
-      [[ -f "$src_name" ]] && cp "$src_name" "$dest_name" || true
-      [[ -f "$src_desc" ]] && cp "$src_desc" "$dest_desc" || true
+      atomic_replace_file "$src_script" "$dest_script" || return 1
+      [[ -f "$src_name" ]] && atomic_replace_file "$src_name" "$dest_name" || true
+      [[ -f "$src_desc" ]] && atomic_replace_file "$src_desc" "$dest_desc" || true
     fi
     return 0
   fi
@@ -596,6 +625,11 @@ sync_one_folder() {
     upstream_heads_and_tails_match "$dest_script" "$src_script"; then
     cp "$dest_script" "$merged"
   fi
+
+  validate_bash_script "$merged" "merged script $(basename "$dest_folder")" || {
+    rm -f "$merged"
+    return 1
+  }
 
   local changed=0
   local reasons=()
@@ -629,9 +663,12 @@ sync_one_folder() {
   fi
 
   if [[ "$DRY_RUN" == "0" ]]; then
-    cp "$merged" "$dest_script"
-    [[ -f "$src_name" ]] && cp "$src_name" "$dest_name" || true
-    [[ -f "$src_desc" ]] && cp "$src_desc" "$dest_desc" || true
+    atomic_replace_file "$merged" "$dest_script" || {
+      rm -f "$merged"
+      return 1
+    }
+    [[ -f "$src_name" ]] && atomic_replace_file "$src_name" "$dest_name" || true
+    [[ -f "$src_desc" ]] && atomic_replace_file "$src_desc" "$dest_desc" || true
   fi
   rm -f "$merged"
   return 0
@@ -716,4 +753,3 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   main "$@"
 fi
-

@@ -12,6 +12,7 @@
 #
 # Configuration:
 #   - DIR_PATH: Path to the TV shows download folder to clear
+#   - DRY_RUN: 1 = preview only, 0 = delete contents
 #   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = skip notification)
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #
@@ -30,6 +31,9 @@ set -o pipefail
 
 # TV shows download directory
 DIR_PATH="/mnt/user/downloads/complete/tv"
+
+# 1 = preview only, 0 = delete contents
+DRY_RUN="0"
 
 # Optional: Unraid dynamix notify (empty = skip notification after clear)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
@@ -82,6 +86,11 @@ is_safe_delete_path() {
     return 0
 }
 
+clear_directory_contents() {
+    local dir="$1"
+    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null
+}
+
 main() {
     if ! is_safe_delete_path "$DIR_PATH"; then
         log_err "Refusing to delete: path is too dangerous (use a full subdirectory, e.g. /mnt/user/downloads/...)"
@@ -96,12 +105,23 @@ main() {
         log_err "NOTIFY_SCRIPT path invalid."
         return 1
     fi
+    if [[ "$DRY_RUN" != "0" && "$DRY_RUN" != "1" ]]; then
+        log_err "DRY_RUN must be 0 or 1."
+        return 1
+    fi
 
     # Measure before deletion
     before_count=$(find "$DIR_PATH" -mindepth 1 2>/dev/null | wc -l)
     before_size=$(du -sh "$DIR_PATH" 2>/dev/null | awk '{print $1}')
 
-    rm -rf "$DIR_PATH"/* || { log_err "rm failed for $DIR_PATH"; return 1; }
+    if [[ "$DRY_RUN" == "1" ]]; then
+        summary="DRY-RUN: would delete $before_count items in TV shows download folder, freeing $before_size"
+        log "$summary"
+        send_unraid_notify "Clear TV Shows Download Folder" "TV Show Downloads Clear Preview" "$summary"
+        return 0
+    fi
+
+    clear_directory_contents "$DIR_PATH" || { log_err "clear failed for $DIR_PATH"; return 1; }
 
     # Measure after deletion (should be 0, but accounts for race conditions)
     after_count=$(find "$DIR_PATH" -mindepth 1 2>/dev/null | wc -l)

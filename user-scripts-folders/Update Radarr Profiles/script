@@ -339,15 +339,10 @@ main() {
     TMP_FILE=$(mktemp) || { log_err "Failed to create temp file"; return 1; }
     echo "$MOVIES" | jq -c '.[]' > "$TMP_FILE"
 
-    while read -r MOVIE; do
+    while IFS=$'\t' read -r MOVIE_ID MOVIE_TITLE MOVIE_YEAR PROFILE_ID; do
         [[ $COUNT -ge $max_updates ]] && break
 
         COUNT=$((COUNT + 1))
-        local MOVIE_ID MOVIE_TITLE MOVIE_YEAR PROFILE_ID
-        MOVIE_ID=$(echo "$MOVIE" | jq '.id')
-        MOVIE_TITLE=$(echo "$MOVIE" | jq -r '.title')
-        MOVIE_YEAR=$(echo "$MOVIE" | jq '.year')
-        PROFILE_ID=$(echo "$MOVIE" | jq '.qualityProfileId')
 
         if [[ "$LOG_VERBOSE" != "1" ]]; then
             if [[ $COUNT -eq 1 ]]; then
@@ -376,14 +371,16 @@ main() {
                 FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
                 UPDATED_MOVIE=$(echo "$FULL_MOVIE" | jq --argjson pid "$CURRENT_YEAR_PROFILE_ID" '.qualityProfileId = $pid')
                 if radarr_put "$RADARR_URL/api/v3/movie/$MOVIE_ID" "$UPDATED_MOVIE"; then
+                    CHANGED=$((CHANGED + 1))
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Updated: $MOVIE_TITLE ($MOVIE_YEAR) → premium profile"
                     [[ "$TRIGGER_SEARCH" == "1" ]] && search_ids+=("$MOVIE_ID")
                 else
                     log_err "Failed to update: $MOVIE_TITLE ($MOVIE_ID)"
                     ERRORS=$((ERRORS + 1))
                 fi
+            else
+                CHANGED=$((CHANGED + 1))
             fi
-            CHANGED=$((CHANGED + 1))
             [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
         fi
 
@@ -393,16 +390,18 @@ main() {
                 FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
                 UPDATED_MOVIE=$(echo "$FULL_MOVIE" | jq --argjson pid "$OLDER_MOVIES_PROFILE_ID" '.qualityProfileId = $pid')
                 if radarr_put "$RADARR_URL/api/v3/movie/$MOVIE_ID" "$UPDATED_MOVIE"; then
+                    REVERTED=$((REVERTED + 1))
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Reverted: $MOVIE_TITLE ($MOVIE_YEAR) → older profile"
                 else
                     log_err "Failed to revert: $MOVIE_TITLE ($MOVIE_ID)"
                     ERRORS=$((ERRORS + 1))
                 fi
+            else
+                REVERTED=$((REVERTED + 1))
             fi
-            REVERTED=$((REVERTED + 1))
             [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
         fi
-    done < "$TMP_FILE"
+    done < <(jq -r '.[] | [.id, (.title // ""), (.year // 0), (.qualityProfileId // 0)] | @tsv' "$TMP_FILE")
 
     rm -f "$TMP_FILE"
 

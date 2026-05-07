@@ -8,6 +8,9 @@ Only regenerates folders for scripts that have changed.
 import shutil
 import re
 import hashlib
+import argparse
+import os
+import tempfile
 from pathlib import Path
 
 # Mapping of script filenames to display names (folder names)
@@ -120,7 +123,32 @@ def get_file_hash(file_path):
     return sha256.hexdigest()
 
 
+def atomic_write_text(dest_path: Path, content: str) -> None:
+    """Write text atomically to avoid truncated output on interruption."""
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{dest_path.name}.tmp.", dir=dest_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        Path(tmp_name).replace(dest_path)
+    except Exception:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def is_safe_generated_folder(folder_path: Path, output_dir: Path) -> bool:
+    """Only allow deleting direct child folders inside the generated output directory."""
+    try:
+        return folder_path.parent.resolve() == output_dir.resolve() and folder_path.is_dir()
+    except FileNotFoundError:
+        return False
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Generate Unraid User Scripts plugin folders.")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing or deleting files.")
+    args = parser.parse_args()
+
     repo_root = Path('.')
     output_dir = repo_root / 'user-scripts-folders'
     
@@ -143,6 +171,8 @@ def main():
     existing_folders = set()
     updated_count = 0
     skipped_count = 0
+    removed_count = 0
+    failed_count = 0
     
     script_hashes = {}
     for script_path in script_files:
@@ -198,24 +228,25 @@ def main():
         
         if needs_regenerate:
             # Create folder if it doesn't exist
-            folder_path.mkdir(exist_ok=True)
-            
-            script_file_path = folder_path / 'script'
-            with open(script_file_path, 'w', encoding='utf-8') as f:
-                f.write(script_content)
+            try:
+                if args.dry_run:
+                    print(f"~ Would update folder: {folder_name} ({reason})")
+                else:
+                    folder_path.mkdir(exist_ok=True)
+                    script_file_path = folder_path / 'script'
+                    atomic_write_text(script_file_path, script_content)
 
-            # Write name file
-            name_file_path = folder_path / 'name'
-            with open(name_file_path, 'w', encoding='utf-8') as f:
-                f.write(display_name)
-            
-            # Write description file
-            desc_file_path = folder_path / 'description'
-            with open(desc_file_path, 'w', encoding='utf-8') as f:
-                f.write(description)
-            
-            print(f"✓ Updated folder: {folder_name} ({reason})")
-            updated_count += 1
+                    name_file_path = folder_path / 'name'
+                    atomic_write_text(name_file_path, display_name)
+
+                    desc_file_path = folder_path / 'description'
+                    atomic_write_text(desc_file_path, description)
+
+                    print(f"✓ Updated folder: {folder_name} ({reason})")
+                updated_count += 1
+            except Exception as exc:
+                print(f"✗ Failed folder: {folder_name} ({reason}) - {exc}")
+                failed_count += 1
         else:
             print(f"⊘ Skipped folder: {folder_name} (no changes)")
             skipped_count += 1
@@ -224,10 +255,23 @@ def main():
     if output_dir.exists():
         for folder_path in output_dir.iterdir():
             if folder_path.is_dir() and folder_path.name not in existing_folders:
-                shutil.rmtree(folder_path)
-                print(f"✗ Removed folder: {folder_path.name} (script deleted)")
+                if not is_safe_generated_folder(folder_path, output_dir):
+                    print(f"✗ Skipped unsafe folder removal: {folder_path}")
+                    failed_count += 1
+                    continue
+                try:
+                    if args.dry_run:
+                        print(f"~ Would remove folder: {folder_path.name} (script deleted)")
+                    else:
+                        shutil.rmtree(folder_path)
+                        print(f"✗ Removed folder: {folder_path.name} (script deleted)")
+                    removed_count += 1
+                except Exception as exc:
+                    print(f"✗ Failed to remove folder: {folder_path.name} - {exc}")
+                    failed_count += 1
     
-    print(f"\nSummary: {updated_count} updated, {skipped_count} skipped, {len(existing_folders)} total folders")
+    mode_label = "DRY-RUN summary" if args.dry_run else "Summary"
+    print(f"\n{mode_label}: {updated_count} updated, {skipped_count} skipped, {removed_count} removed, {failed_count} failed, {len(existing_folders)} total folders")
     print(f"\nGenerated User Scripts plugin folders in {output_dir}/")
     print("\nTo use:")
     print("1. Copy the folders from user-scripts-folders/ to /boot/config/plugins/user.scripts/scripts/ on your Unraid flash drive")
