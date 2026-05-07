@@ -1168,7 +1168,8 @@ process_file() {
 
 process_series() {
   local series_json="$1"
-  local series_id series_title episode_files_json episodes_json
+  local series_id="" series_title="" episode_files_json="" episodes_json="" file_json=""
+
   series_id="$(jq -r '.id' <<<"$series_json")"
   series_title="$(jq -r '.title' <<<"$series_json")"
   SERIES_SCANNED=$((SERIES_SCANNED + 1))
@@ -1187,7 +1188,6 @@ process_series() {
     return
   }
 
-  local file_json
   while IFS= read -r file_json; do
     [[ -z "$file_json" ]] && continue
     process_file "$series_json" "$file_json" "$episodes_json"
@@ -1195,7 +1195,7 @@ process_series() {
       log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
       return
     fi
-  done < <(jq -c '.[]' <<<"$episode_files_json")
+  done < <(jq -c '.[]' <<< "${episode_files_json:-[]}")
 }
 
 discover_candidates_fast() {

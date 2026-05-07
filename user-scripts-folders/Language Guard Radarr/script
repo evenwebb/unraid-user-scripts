@@ -936,8 +936,8 @@ process_movie() {
   local acceptable_langs=()
   local lang
 
-  file_json="$(jq -c '.movieFile // {}' <<<"$movie_json")"
-  if [[ "$(jq -r 'has("id")' <<<"$file_json")" != "true" ]]; then
+  file_json="$(jq -c '.movieFile // {}' <<< "$movie_json")"
+  if ! jq -e 'has("id")' <<< "$file_json" &>/dev/null; then
     return
   fi
 
@@ -946,12 +946,12 @@ process_movie() {
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
   fi
 
-  if [[ "$(jq -r '.monitored // false' <<<"$movie_json")" != "true" ]]; then
+  if ! jq -e '.monitored == true' <<< "$movie_json" &>/dev/null; then
     SKIPPED_UNMONITORED=$((SKIPPED_UNMONITORED + 1))
     return
   fi
 
-  original_language="$(jq -r '.originalLanguage.name // empty' <<<"$movie_json" | while IFS= read -r l; do canonical_language "$l"; done)"
+  original_language="$(jq -r '.originalLanguage.name // empty' <<< "$movie_json" | while IFS= read -r l; do canonical_language "$l"; done)"
 
   while IFS= read -r lang; do
     [[ -n "$lang" ]] && detected_langs+=("$lang")
@@ -959,7 +959,7 @@ process_movie() {
 
   if [[ ${#detected_langs[@]} -eq 0 ]]; then
     SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
-    log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq -r '.id' <<<"$movie_json") path=\"$(jq -r '.path // empty' <<<"$file_json")\""
+    log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq -r '.id' <<< "$movie_json") path=\"$(jq -r '.path // empty' <<< "$file_json")\""
     return
   fi
 
@@ -971,7 +971,7 @@ process_movie() {
   for lang in "${detected_langs[@]}"; do
     if language_list_contains "$lang" "${acceptable_langs[@]}"; then
       VALID_FILES_KEPT=$((VALID_FILES_KEPT + 1))
-      debug "keep_file movie_id=$(jq -r '.id' <<<"$movie_json") acceptable_language=$lang"
+      debug "keep_file movie_id=$(jq -r '.id' <<< "$movie_json") acceptable_language=$lang"
       return
     fi
   done
