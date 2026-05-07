@@ -32,8 +32,14 @@
 #
 # Notes:
 #   - This script expects source folders in: user-scripts-folders/
-#   - It preserves config for scripts that contain an editable config marker.
-#   - If a script has no marker, it will be overwritten as-is.
+#   - It preserves config for scripts that contain an editable config marker
+#     (`# EDIT FOR YOUR SETUP` — minor variations allowed).
+#   - Merge keeps the upstream EDIT block ordering and non-assignment lines (comments,
+#     spacing, typo fixes upstream). Assignments patch one variable name at a time:
+#     if your disk still has RADARR_URL=..., that whole line/group replaces upstream
+#     for the matching key only; upstream default is kept for vars you never set.
+#   - If a script has no marker / no recognizable EDIT region, destination is overwritten
+#     entirely from upstream.
 #
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
@@ -42,8 +48,8 @@
 set -u
 set -o pipefail
 
-if [[ -z "${BASH_VERSINFO:-}" ]] || [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
-  echo "Error: This script requires Bash 4+ (associative arrays are used). Current bash: ${BASH_VERSION:-unknown}" >&2
+if [[ -z "${BASH_VERSINFO:-}" ]] || [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]] || { [[ "${BASH_VERSINFO[0]:-0}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]:-0}" -lt 3 ]]; }; then
+  echo "Error: This script requires Bash 4.3+ (declare -n is used). Current bash: ${BASH_VERSION:-unknown}" >&2
   exit 1
 fi
 
@@ -316,10 +322,14 @@ prepare_source_folders() {
 get_config_range() {
   # Prints: "<start_line> <end_line>" or nothing if marker not found.
   # Strip CR so CRLF on flash does not break the EDIT marker match.
+  # Marker line tolerates trailing text (paste/GUI quirks) as long as it still looks like
+  # EDIT ... FOR YOUR ... SETUP.
   local file="$1"
   tr -d '\r' < "$file" | awk '
     BEGIN { start=0; end=0 }
-    start==0 && $0 ~ /^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP[[:space:]]*$/ { start=NR+1; next }
+    start==0 && $0 ~ /^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP/ {
+      start=NR+1; next
+    }
     start>0 && end==0 && $0 ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)[[:space:]]*\\{/ { end=NR-1; print start, end; exit }
     END { if (start>0 && end==0) { end=NR; print start, end } }
   '
@@ -378,8 +388,41 @@ line_is_array_close() {
   [[ "$line" =~ $re ]]
 }
 
+# Populate associative array VAR_NAME -> assignment text from an EDIT-region block string.
+# First occurrence wins per variable name inside the EDIT block so edge-case duplicate
+# keys do not silently shadow earlier saved assignments.
+build_dest_assignment_map() {
+  local -n dest_by_key_ref="$1"
+  local block_text="$2"
+  local line key
+  while IFS= read -r line; do
+    if line_is_assignment "$line"; then
+      key="$(assignment_key "$line")"
+      if [[ -n "${dest_by_key_ref[$key]:-}" ]]; then
+        continue
+      fi
+      if line_starts_multiline_array "$line"; then
+        local mblock="$line"$'\n'
+        while IFS= read -r line; do
+          mblock+="$line"$'\n'
+          line_is_array_close "$line" && break
+        done
+        dest_by_key_ref["$key"]="$mblock"
+      else
+        dest_by_key_ref["$key"]="$line"
+      fi
+    fi
+  done <<<"$block_text"
+}
+
 merge_config_blocks() {
   # Usage: merge_config_blocks <dest_existing_script> <src_new_script> <out_path>
+  #
+  # Keyed overlay: upstream (src) EDIT block determines order, comments, and new keys.
+  # For each assignment KEY= upstream, inserts the destination assignment for KEY when
+  # present; otherwise upstream default stays. Destination-only keys are appended as a
+  # NOTE block after the EDIT region so local extras are not silently dropped when
+  # upstream removes a setting key.
   local dest_existing="$1"
   local src_new="$2"
   local out="$3"
@@ -399,8 +442,12 @@ merge_config_blocks() {
   src_block="$(extract_config_block "$src_new" || true)"
   dest_block="$(extract_config_block "$dest_existing" || true)"
 
-  # If either side lacks a parseable config block, fall back to full overwrite.
-  if [[ -z "$src_block" || -z "$dest_block" ]]; then
+  if [[ -z "$src_block" ]]; then
+    cp "$src_new" "$out"
+    return 0
+  fi
+
+  if [[ -z "$dest_block" ]]; then
     cp "$src_new" "$out"
     return 0
   fi
@@ -409,31 +456,10 @@ merge_config_blocks() {
   declare -A used=()
   local line key
 
-  # Build a map of key -> full assignment block (supports multi-line arrays).
-  # First occurrence wins: scripts like language-guard-radarr.sh assign RADARR_URL again
-  # later (e.g. for a Python subprocess); those must not overwrite the EDIT block values.
-  while IFS= read -r line; do
-    if line_is_assignment "$line"; then
-      key="$(assignment_key "$line")"
-      if [[ -n "${dest_by_key[$key]:-}" ]]; then
-        continue
-      fi
-      if line_starts_multiline_array "$line"; then
-        local block="$line"$'\n'
-        while IFS= read -r line; do
-          block+="$line"$'\n'
-          line_is_array_close "$line" && break
-        done
-        dest_by_key["$key"]="$block"
-      else
-        dest_by_key["$key"]="$line"
-      fi
-    fi
-  done <<<"$dest_block"
+  build_dest_assignment_map dest_by_key "$dest_block"
 
   local merged_block=""
 
-  # Rebuild config block using upstream structure, but inject dest values by key.
   while IFS= read -r line; do
     if line_is_assignment "$line"; then
       key="$(assignment_key "$line")"
