@@ -28,7 +28,7 @@ set -o pipefail
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
-
+ 
 # Movies download directory
 DIR_PATH="/mnt/user/downloads/complete/movies"
 

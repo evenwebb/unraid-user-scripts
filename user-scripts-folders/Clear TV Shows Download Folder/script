@@ -28,7 +28,7 @@ set -o pipefail
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
-
+ 
 # TV shows download directory
 DIR_PATH="/mnt/user/downloads/complete/tv"
 
