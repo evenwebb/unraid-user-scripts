@@ -1200,7 +1200,7 @@ main() {
     INVALID_FILES_FOUND=0
     SKIPPED_AMBIGUOUS="$(jq_read "$discovery_json" -r ".summary.skipped_ambiguous")"
     SKIPPED_UNMONITORED="$(jq_read "$discovery_json" -r ".summary.skipped_unmonitored")"
-    cand_len="$(jq_read "$discovery_json" '.candidates | length')"
+    cand_len="$(jq_read "$discovery_json" ".candidates | length")"
     log_line "INFO" "fast_discovery_complete movies_scanned=$MOVIES_SCANNED files_scanned=$FILES_SCANNED candidates=$cand_len"
     while IFS= read -r candidate_json; do
       [[ -z "$candidate_json" ]] && continue

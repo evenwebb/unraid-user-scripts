@@ -1208,7 +1208,7 @@ process_series() {
       log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
       return
     fi
-  done < <(jq_read "${episode_files_json:-[]}" -c '.[]')
+  done < <(jq_read "${episode_files_json:-[]}" -c ".[]")
 }
 
 discover_candidates_fast() {
@@ -1459,7 +1459,7 @@ main() {
     INVALID_FILES_FOUND=0
     SKIPPED_AMBIGUOUS="$(jq_read "$discovery_json" -r ".summary.skipped_ambiguous")"
     SKIPPED_UNMONITORED="$(jq_read "$discovery_json" -r ".summary.skipped_unmonitored")"
-    cand_len="$(jq_read "$discovery_json" '.candidates | length')"
+    cand_len="$(jq_read "$discovery_json" ".candidates | length")"
     log_line "INFO" "fast_discovery_complete series_scanned=$SERIES_SCANNED files_scanned=$FILES_SCANNED candidates=$cand_len"
     while IFS= read -r candidate_json; do
       [[ -z "$candidate_json" ]] && continue
