@@ -27,6 +27,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'  # Use latest 3.x for faster setup
+
+      - name: Validate bash syntax (bash -n)
+        run: |
+          chmod +x check-scripts.sh
+          ./check-scripts.sh
       
       - name: Generate User Scripts folders
         run: |

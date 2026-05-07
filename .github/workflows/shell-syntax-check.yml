@@ -1,0 +1,18 @@
+name: Bash syntax check
+
+on:
+  pull_request:
+
+jobs:
+  bash-n:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: bash -n all scripts
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          chmod +x check-scripts.sh || true
+          ./check-scripts.sh
