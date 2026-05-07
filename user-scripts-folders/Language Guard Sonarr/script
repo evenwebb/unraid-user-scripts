@@ -210,7 +210,7 @@ release_lock() {
 ###############################################################################
 
 default_state_json() {
-  cat <<'JSON'
+  cat <<LANGUAGE_GUARD_SONARR_STATE_JSON
 {
   "version": 1,
   "blacklist": {},
@@ -236,7 +236,7 @@ default_state_json() {
     "runs": []
   }
 }
-JSON
+LANGUAGE_GUARD_SONARR_STATE_JSON
 }
 
 init_state() {
@@ -456,13 +456,13 @@ canonical_language() {
 
 normalize_language_csv() {
   local joined="$1"
-  python3 - "$joined" <<'PY'
+  python3 - "$joined" <<LANGUAGE_GUARD_SONARR_CSV_PY
 import re, sys
 joined = sys.argv[1]
 parts = re.split(r'[^A-Za-z]+', joined)
 parts = [p.strip().lower() for p in parts if p.strip()]
 print("\n".join(parts))
-PY
+LANGUAGE_GUARD_SONARR_CSV_PY
 }
 
 unique_lines() {
@@ -1219,11 +1219,12 @@ process_series() {
 }
 
 discover_candidates_fast() {
+  # Heredoc delimiter has no single quotes so a mangled `<<'PY'` line cannot break the script.
   SONARR_URL="$SONARR_URL" \
   SONARR_API_KEY="$SONARR_API_KEY" \
   SERIES_ID="$SERIES_ID" \
   SERIES_FILTER="$SERIES_FILTER" \
-  python3 - <<'PY'
+  python3 - <<LANGUAGE_GUARD_SONARR_FAST_PY
 import concurrent.futures, json, os, re, sys, threading, urllib.request
 
 SONARR_URL = os.environ["SONARR_URL"].rstrip("/")
@@ -1354,7 +1355,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
                 print(json.dumps({"progress": completed}), flush=True)
 
 print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
-PY
+LANGUAGE_GUARD_SONARR_FAST_PY
 }
 
 print_summary() {

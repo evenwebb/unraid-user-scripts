@@ -206,7 +206,7 @@ release_lock() {
 ###############################################################################
 
 default_state_json() {
-  cat <<'JSON'
+  cat <<LANGUAGE_GUARD_RADARR_STATE_JSON
 {
   "version": 1,
   "blacklist": {},
@@ -231,7 +231,7 @@ default_state_json() {
     "runs": []
   }
 }
-JSON
+LANGUAGE_GUARD_RADARR_STATE_JSON
 }
 
 state_update() {
@@ -408,13 +408,13 @@ canonical_language() {
 
 normalize_language_csv() {
   local joined="$1"
-  python3 - "$joined" <<'PY'
+  python3 - "$joined" <<LANGUAGE_GUARD_RADARR_CSV_PY
 import re, sys
 joined = sys.argv[1]
 parts = re.split(r'[^A-Za-z]+', joined)
 parts = [p.strip().lower() for p in parts if p.strip()]
 print("\n".join(parts))
-PY
+LANGUAGE_GUARD_RADARR_CSV_PY
 }
 
 unique_lines() {
@@ -1005,11 +1005,12 @@ process_movie() {
 }
 
 discover_candidates_fast() {
+  # Heredoc delimiter has no single quotes so a mangled `<<'PY'` line cannot break the script.
   RADARR_URL="$RADARR_URL" \
   RADARR_API_KEY="$RADARR_API_KEY" \
   MOVIE_ID="$MOVIE_ID" \
   MOVIE_FILTER="$MOVIE_FILTER" \
-  python3 - <<'PY'
+  python3 - <<LANGUAGE_GUARD_RADARR_FAST_PY
 import json, os, re, urllib.request
 
 RADARR_URL = os.environ["RADARR_URL"].rstrip("/")
@@ -1105,7 +1106,7 @@ for movie in movies:
     })
 
 print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
-PY
+LANGUAGE_GUARD_RADARR_FAST_PY
 }
 
 print_summary() {
