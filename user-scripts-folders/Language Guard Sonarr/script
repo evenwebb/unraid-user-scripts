@@ -36,7 +36,7 @@
 #   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
 #   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
 #   - STATS_DUMP: 1 = print run stats and exit
-#   - FAST_DISCOVERY: 1 = faster discovery pass, 0 = slower shell/jq path
+#   - FAST_DISCOVERY: 1 = faster embedded-Python discovery, 0 = slower shell/jq path
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -210,7 +210,7 @@ release_lock() {
 ###############################################################################
 
 default_state_json() {
-  cat <<LANGUAGE_GUARD_SONARR_STATE_JSON
+  cat <<'SONARR_LANGUAGE_DEFAULT_STATE_JSON'
 {
   "version": 1,
   "blacklist": {},
@@ -236,7 +236,7 @@ default_state_json() {
     "runs": []
   }
 }
-LANGUAGE_GUARD_SONARR_STATE_JSON
+SONARR_LANGUAGE_DEFAULT_STATE_JSON
 }
 
 init_state() {
@@ -456,13 +456,7 @@ canonical_language() {
 
 normalize_language_csv() {
   local joined="$1"
-  python3 - "$joined" <<LANGUAGE_GUARD_SONARR_CSV_PY
-import re, sys
-joined = sys.argv[1]
-parts = re.split(r'[^A-Za-z]+', joined)
-parts = [p.strip().lower() for p in parts if p.strip()]
-print("\n".join(parts))
-LANGUAGE_GUARD_SONARR_CSV_PY
+  python3 -c 'import re, sys; joined = sys.argv[1]; parts = [p.strip().lower() for p in re.split(r"[^A-Za-z]+", joined) if p.strip()]; sys.stdout.write("\n".join(parts) + "\n")' "$joined"
 }
 
 unique_lines() {
@@ -1219,19 +1213,25 @@ process_series() {
 }
 
 discover_candidates_fast() {
-  # Heredoc delimiter has no single quotes so a mangled `<<'PY'` line cannot break the script.
   SONARR_URL="$SONARR_URL" \
   SONARR_API_KEY="$SONARR_API_KEY" \
   SERIES_ID="$SERIES_ID" \
   SERIES_FILTER="$SERIES_FILTER" \
-  python3 - <<LANGUAGE_GUARD_SONARR_FAST_PY
-import concurrent.futures, json, os, re, sys, threading, urllib.request
+  python3 - <<'SONARR_FAST_DISCOVERY'
+
+import concurrent.futures
+import json
+import os
+import re
+import threading
+import urllib.request
 
 SONARR_URL = os.environ["SONARR_URL"].rstrip("/")
 API_KEY = os.environ["SONARR_API_KEY"]
 SERIES_ID = os.environ.get("SERIES_ID", "")
 SERIES_FILTER = os.environ.get("SERIES_FILTER", "").lower()
 MAX_WORKERS = 12
+
 
 def api_get(path):
     req = urllib.request.Request(
@@ -1240,6 +1240,7 @@ def api_get(path):
     )
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.load(r)
+
 
 def canon(raw):
     raw = re.sub(r"[^a-z]", "", str(raw).lower())
@@ -1255,6 +1256,7 @@ def canon(raw):
     }
     return mapping.get(raw, raw)
 
+
 def audio_langs(file_obj):
     found = []
     for lang in file_obj.get("languages", []) or []:
@@ -1269,94 +1271,98 @@ def audio_langs(file_obj):
                 found.append(value)
     return found
 
-series_list = api_get("/api/v3/series")
-if SERIES_ID:
-    series_list = [s for s in series_list if str(s.get("id")) == SERIES_ID]
-if SERIES_FILTER:
-    series_list = [s for s in series_list if SERIES_FILTER in (s.get("title","").lower())]
 
-summary = {
-    "series_scanned": 0,
-    "files_scanned": 0,
-    "valid_files_kept": 0,
-    "invalid_files_found": 0,
-    "skipped_ambiguous": 0,
-    "skipped_unmonitored": 0,
-}
-candidates = []
-progress_lock = threading.Lock()
+def main():
+    series_list = api_get("/api/v3/series")
+    if SERIES_ID:
+        series_list = [s for s in series_list if str(s.get("id")) == SERIES_ID]
+    if SERIES_FILTER:
+        series_list = [s for s in series_list if SERIES_FILTER in (s.get("title", "").lower())]
 
-def inspect_series(series):
-    local_summary = {
-        "series_scanned": 1,
+    summary = {
+        "series_scanned": 0,
         "files_scanned": 0,
         "valid_files_kept": 0,
         "invalid_files_found": 0,
         "skipped_ambiguous": 0,
         "skipped_unmonitored": 0,
     }
-    local_candidates = []
-    series_id = series["id"]
-    episodes = api_get(f"/api/v3/episode?seriesId={series_id}")
-    files = api_get(f"/api/v3/episodefile?seriesId={series_id}")
-    episode_map = {}
-    for ep in episodes:
-        episode_map.setdefault(ep.get("episodeFileId", 0), []).append({
-            "id": ep["id"],
-            "monitored": ep.get("monitored", False),
-        })
-    original = canon(((series.get("originalLanguage") or {}).get("name")) or "")
-    acceptable = {"english"}
-    if original and original != "english":
-        acceptable.add(original)
-    for file_obj in files:
-        local_summary["files_scanned"] += 1
-        file_id = file_obj["id"]
-        linked = episode_map.get(file_id, [])
-        if not linked:
-            local_summary["skipped_ambiguous"] += 1
-            continue
-        if (not series.get("monitored", False)) or any(not ep["monitored"] for ep in linked):
-            local_summary["skipped_unmonitored"] += 1
-            continue
-        langs = audio_langs(file_obj)
-        if not langs:
-            local_summary["skipped_ambiguous"] += 1
-            continue
-        if any(lang in acceptable for lang in langs):
-            local_summary["valid_files_kept"] += 1
-            continue
-        local_summary["invalid_files_found"] += 1
-        reason = "missing_english_audio" if (not original or original == "english") else "missing_english_and_original_audio"
-        local_candidates.append({
-            "series_id": series_id,
-            "series_title": series.get("title"),
-            "file_id": file_id,
-            "path": file_obj.get("path"),
-            "scene_name": file_obj.get("sceneName"),
-            "episode_ids": [ep["id"] for ep in linked],
-            "episode_meta": [{"id": ep["id"], "monitored": ep["monitored"]} for ep in linked],
-            "reason": reason,
-            "detected_languages": langs,
-        })
-    return local_summary, local_candidates
+    candidates = []
+    progress_lock = threading.Lock()
 
-completed = 0
-with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-    futures = [ex.submit(inspect_series, series) for series in series_list]
-    for future in concurrent.futures.as_completed(futures):
-        local_summary, local_candidates = future.result()
-        for key, value in local_summary.items():
-            summary[key] += value
-        candidates.extend(local_candidates)
-        with progress_lock:
-            completed += 1
-            if completed % 25 == 0:
-                print(json.dumps({"progress": completed}), flush=True)
+    def inspect_series(series):
+        local_summary = {
+            "series_scanned": 1,
+            "files_scanned": 0,
+            "valid_files_kept": 0,
+            "invalid_files_found": 0,
+            "skipped_ambiguous": 0,
+            "skipped_unmonitored": 0,
+        }
+        local_candidates = []
+        series_id = series["id"]
+        episodes = api_get(f"/api/v3/episode?seriesId={series_id}")
+        files = api_get(f"/api/v3/episodefile?seriesId={series_id}")
+        episode_map = {}
+        for ep in episodes:
+            episode_map.setdefault(ep.get("episodeFileId", 0), []).append({
+                "id": ep["id"],
+                "monitored": ep.get("monitored", False),
+            })
+        original = canon(((series.get("originalLanguage") or {}).get("name")) or "")
+        acceptable = {"english"}
+        if original and original != "english":
+            acceptable.add(original)
+        for file_obj in files:
+            local_summary["files_scanned"] += 1
+            file_id = file_obj["id"]
+            linked = episode_map.get(file_id, [])
+            if not linked:
+                local_summary["skipped_ambiguous"] += 1
+                continue
+            if (not series.get("monitored", False)) or any(not ep["monitored"] for ep in linked):
+                local_summary["skipped_unmonitored"] += 1
+                continue
+            langs = audio_langs(file_obj)
+            if not langs:
+                local_summary["skipped_ambiguous"] += 1
+                continue
+            if any(lang in acceptable for lang in langs):
+                local_summary["valid_files_kept"] += 1
+                continue
+            local_summary["invalid_files_found"] += 1
+            reason = "missing_english_audio" if (not original or original == "english") else "missing_english_and_original_audio"
+            local_candidates.append({
+                "series_id": series_id,
+                "series_title": series.get("title"),
+                "file_id": file_id,
+                "path": file_obj.get("path"),
+                "scene_name": file_obj.get("sceneName"),
+                "episode_ids": [ep["id"] for ep in linked],
+                "episode_meta": [{"id": ep["id"], "monitored": ep["monitored"]} for ep in linked],
+                "reason": reason,
+                "detected_languages": langs,
+            })
+        return local_summary, local_candidates
 
-print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
-LANGUAGE_GUARD_SONARR_FAST_PY
+    completed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = [ex.submit(inspect_series, series) for series in series_list]
+        for future in concurrent.futures.as_completed(futures):
+            local_summary, local_candidates = future.result()
+            for key, value in local_summary.items():
+                summary[key] += value
+            candidates.extend(local_candidates)
+            with progress_lock:
+                completed += 1
+                if completed % 25 == 0:
+                    print(json.dumps({"progress": completed}), flush=True)
+
+    print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
+main()
+SONARR_FAST_DISCOVERY
 }
+
 
 print_summary() {
   cat <<EOF

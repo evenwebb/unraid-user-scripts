@@ -5,9 +5,8 @@ Creates a folder structure compatible with the User Scripts plugin.
 Only regenerates folders for scripts that have changed.
 """
 
-import os
-import re
 import shutil
+import re
 import hashlib
 from pathlib import Path
 
@@ -145,14 +144,9 @@ def main():
     updated_count = 0
     skipped_count = 0
     
-    # Pre-compute script hashes in one pass
     script_hashes = {}
     for script_path in script_files:
-        with open(script_path, 'rb') as f:
-            sha256 = hashlib.sha256()
-            for chunk in iter(lambda: f.read(8192), b''):
-                sha256.update(chunk)
-            script_hashes[script_path.name] = sha256.hexdigest()
+        script_hashes[script_path.name] = get_file_hash(script_path)
     
     for script_path in script_files:
         script_file = script_path.name
@@ -170,19 +164,16 @@ def main():
         folder_name = sanitize_folder_name(display_name.replace(" - ", " "))
         folder_path = output_dir / folder_name
         existing_folders.add(folder_name)
-        
-        # Get pre-computed hash
-        new_script_hash = script_hashes[script_file]
-        
-        # Check if update is needed (read content only if needed)
+
         script_file_path = folder_path / 'script'
+        new_script_hash = script_hashes[script_file]
         existing_script_hash = get_file_hash(script_file_path)
-        
+
         # Check if update is needed
         if not folder_path.exists():
             needs_regenerate, reason = True, "new script"
         elif existing_script_hash != new_script_hash:
-            needs_regenerate, reason = True, "script content changed"
+            needs_regenerate, reason = True, "script changed"
         else:
             # Only check name/description if script hasn't changed
             name_file_path = folder_path / 'name'
@@ -193,7 +184,7 @@ def main():
                 with open(name_file_path, 'r', encoding='utf-8') as f:
                     if f.read().strip() != display_name:
                         needs_regenerate, reason = True, "name changed"
-            elif desc_file_path.exists():
+            if not needs_regenerate and desc_file_path.exists():
                 with open(desc_file_path, 'r', encoding='utf-8') as f:
                     if f.read().strip() != description:
                         needs_regenerate, reason = True, "description changed"
@@ -202,7 +193,6 @@ def main():
                 reason = None
         
         if needs_regenerate:
-            # Read script content only when needed
             with open(script_path, 'r', encoding='utf-8') as f:
                 script_content = f.read()
         
@@ -210,11 +200,10 @@ def main():
             # Create folder if it doesn't exist
             folder_path.mkdir(exist_ok=True)
             
-            # Write script file
             script_file_path = folder_path / 'script'
             with open(script_file_path, 'w', encoding='utf-8') as f:
                 f.write(script_content)
-            
+
             # Write name file
             name_file_path = folder_path / 'name'
             with open(name_file_path, 'w', encoding='utf-8') as f:

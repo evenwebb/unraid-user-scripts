@@ -14,5 +14,20 @@ jobs:
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
-          chmod +x check-scripts.sh || true
-          ./check-scripts.sh
+          errors=0
+          count=0
+          for sh in *.sh; do
+            [[ -f "$sh" ]] || continue
+            count=$((count + 1))
+            echo "bash -n: $sh ..."
+            bash -n "$sh" || errors=$((errors + 1))
+          done
+          shopt -s nullglob || true
+          for fs in user-scripts-folders/*/script; do
+            count=$((count + 1))
+            echo "bash -n: $fs ..."
+            bash -n "$fs" || errors=$((errors + 1))
+          done
+          shopt -u nullglob || true
+          [[ "$errors" -eq 0 ]]
+          echo "--- All $count script(s) passed bash -n."

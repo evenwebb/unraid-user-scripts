@@ -35,7 +35,7 @@
 #   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
 #   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
 #   - STATS_DUMP: 1 = print run stats and exit
-#   - FAST_DISCOVERY: 1 = faster discovery pass, 0 = slower shell/jq path
+#   - FAST_DISCOVERY: 1 = faster embedded-Python discovery, 0 = slower shell/jq path
 #
 # Logging (Unraid-friendly):
 #   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
@@ -206,7 +206,7 @@ release_lock() {
 ###############################################################################
 
 default_state_json() {
-  cat <<LANGUAGE_GUARD_RADARR_STATE_JSON
+  cat <<'RADARR_LANGUAGE_DEFAULT_STATE_JSON'
 {
   "version": 1,
   "blacklist": {},
@@ -231,7 +231,7 @@ default_state_json() {
     "runs": []
   }
 }
-LANGUAGE_GUARD_RADARR_STATE_JSON
+RADARR_LANGUAGE_DEFAULT_STATE_JSON
 }
 
 state_update() {
@@ -408,13 +408,7 @@ canonical_language() {
 
 normalize_language_csv() {
   local joined="$1"
-  python3 - "$joined" <<LANGUAGE_GUARD_RADARR_CSV_PY
-import re, sys
-joined = sys.argv[1]
-parts = re.split(r'[^A-Za-z]+', joined)
-parts = [p.strip().lower() for p in parts if p.strip()]
-print("\n".join(parts))
-LANGUAGE_GUARD_RADARR_CSV_PY
+  python3 -c 'import re, sys; joined = sys.argv[1]; parts = [p.strip().lower() for p in re.split(r"[^A-Za-z]+", joined) if p.strip()]; sys.stdout.write("\n".join(parts) + "\n")' "$joined"
 }
 
 unique_lines() {
@@ -1005,18 +999,22 @@ process_movie() {
 }
 
 discover_candidates_fast() {
-  # Heredoc delimiter has no single quotes so a mangled `<<'PY'` line cannot break the script.
   RADARR_URL="$RADARR_URL" \
   RADARR_API_KEY="$RADARR_API_KEY" \
   MOVIE_ID="$MOVIE_ID" \
   MOVIE_FILTER="$MOVIE_FILTER" \
-  python3 - <<LANGUAGE_GUARD_RADARR_FAST_PY
-import json, os, re, urllib.request
+  python3 - <<'RADARR_FAST_DISCOVERY'
+
+import json
+import os
+import re
+import urllib.request
 
 RADARR_URL = os.environ["RADARR_URL"].rstrip("/")
 API_KEY = os.environ["RADARR_API_KEY"]
 MOVIE_ID = os.environ.get("MOVIE_ID", "")
 MOVIE_FILTER = os.environ.get("MOVIE_FILTER", "").lower()
+
 
 def api_get(path):
     req = urllib.request.Request(
@@ -1025,6 +1023,7 @@ def api_get(path):
     )
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.load(r)
+
 
 def canon(raw):
     raw = re.sub(r"[^a-z]", "", str(raw).lower())
@@ -1042,6 +1041,7 @@ def canon(raw):
     }
     return mapping.get(raw, raw)
 
+
 def audio_langs(file_obj):
     found = []
     for lang in file_obj.get("languages", []) or []:
@@ -1056,58 +1056,62 @@ def audio_langs(file_obj):
                 found.append(value)
     return found
 
-movies = api_get("/api/v3/movie")
-if MOVIE_ID:
-    movies = [m for m in movies if str(m.get("id")) == MOVIE_ID]
-if MOVIE_FILTER:
-    movies = [m for m in movies if MOVIE_FILTER in (m.get("title","").lower())]
 
-summary = {
-    "movies_scanned": 0,
-    "files_scanned": 0,
-    "valid_files_kept": 0,
-    "invalid_files_found": 0,
-    "skipped_ambiguous": 0,
-    "skipped_unmonitored": 0,
+def main():
+    movies = api_get("/api/v3/movie")
+    if MOVIE_ID:
+        movies = [m for m in movies if str(m.get("id")) == MOVIE_ID]
+    if MOVIE_FILTER:
+        movies = [m for m in movies if MOVIE_FILTER in (m.get("title", "").lower())]
+
+    summary = {
+        "movies_scanned": 0,
+        "files_scanned": 0,
+        "valid_files_kept": 0,
+        "invalid_files_found": 0,
+        "skipped_ambiguous": 0,
+        "skipped_unmonitored": 0,
+    }
+    candidates = []
+
+    for movie in movies:
+        summary["movies_scanned"] += 1
+        file_obj = movie.get("movieFile") or {}
+        if not file_obj:
+            continue
+        summary["files_scanned"] += 1
+        if not movie.get("monitored", False):
+            summary["skipped_unmonitored"] += 1
+            continue
+        original = canon(((movie.get("originalLanguage") or {}).get("name")) or "")
+        acceptable = {"english"}
+        if original and original != "english":
+            acceptable.add(original)
+        langs = audio_langs(file_obj)
+        if not langs:
+            summary["skipped_ambiguous"] += 1
+            continue
+        if any(lang in acceptable for lang in langs):
+            summary["valid_files_kept"] += 1
+            continue
+        reason = "missing_english_audio" if (not original or original == "english") else "missing_english_and_original_audio"
+        summary["invalid_files_found"] += 1
+        candidates.append({
+            "movie_id": movie["id"],
+            "movie_title": movie.get("title"),
+            "monitored": movie.get("monitored", False),
+            "file_id": file_obj.get("id"),
+            "path": file_obj.get("path"),
+            "scene_name": file_obj.get("sceneName"),
+            "reason": reason,
+            "detected_languages": langs,
+        })
+
+    print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
+main()
+RADARR_FAST_DISCOVERY
 }
-candidates = []
 
-for movie in movies:
-    summary["movies_scanned"] += 1
-    file_obj = movie.get("movieFile") or {}
-    if not file_obj:
-        continue
-    summary["files_scanned"] += 1
-    if not movie.get("monitored", False):
-        summary["skipped_unmonitored"] += 1
-        continue
-    original = canon(((movie.get("originalLanguage") or {}).get("name")) or "")
-    acceptable = {"english"}
-    if original and original != "english":
-        acceptable.add(original)
-    langs = audio_langs(file_obj)
-    if not langs:
-        summary["skipped_ambiguous"] += 1
-        continue
-    if any(lang in acceptable for lang in langs):
-        summary["valid_files_kept"] += 1
-        continue
-    reason = "missing_english_audio" if (not original or original == "english") else "missing_english_and_original_audio"
-    summary["invalid_files_found"] += 1
-    candidates.append({
-        "movie_id": movie["id"],
-        "movie_title": movie.get("title"),
-        "monitored": movie.get("monitored", False),
-        "file_id": file_obj.get("id"),
-        "path": file_obj.get("path"),
-        "scene_name": file_obj.get("sceneName"),
-        "reason": reason,
-        "detected_languages": langs,
-    })
-
-print(json.dumps({"summary": summary, "candidates": candidates}), flush=True)
-LANGUAGE_GUARD_RADARR_FAST_PY
-}
 
 print_summary() {
   cat <<EOF
