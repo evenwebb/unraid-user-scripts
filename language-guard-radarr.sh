@@ -339,13 +339,14 @@ api_post_status() {
 }
 
 verify_radarr_connection() {
-  local payload
+  local payload app_name
   payload="$(api_get "/api/v3/system/status")" || {
     log_line "ERROR" "Unable to reach Radarr at $RADARR_URL"
     exit 1
   }
 
-  if ! jq -e '.appName == "Radarr"' >/dev/null 2>&1 <<<"$payload"; then
+  app_name="$(printf '%s' "$payload" | jq -r '.appName // empty')"
+  if [[ "$app_name" != "Radarr" ]]; then
     log_line "ERROR" "Target is not Radarr or API key is invalid"
     exit 1
   fi
@@ -936,8 +937,9 @@ process_movie() {
   local acceptable_langs=()
   local lang
 
-  file_json="$(jq -c '.movieFile // {}' <<<"$movie_json")"
-  if [[ "$(jq -r 'has("id")' <<<"$file_json")" != "true" ]]; then
+  file_json="$(jq -c '.movieFile // {}' <<< "$movie_json")"
+  # Use jq filter without nested quotes — curly/smart quotes around "id" break bash parsing on some hosts.
+  if ! printf '%s' "$file_json" | jq -e '.id != null' >/dev/null 2>&1; then
     return
   fi
 
@@ -946,12 +948,12 @@ process_movie() {
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
   fi
 
-  if [[ "$(jq -r '.monitored // false' <<<"$movie_json")" != "true" ]]; then
+  if ! printf '%s' "$movie_json" | jq -e '.monitored == true' >/dev/null 2>&1; then
     SKIPPED_UNMONITORED=$((SKIPPED_UNMONITORED + 1))
     return
   fi
 
-  original_language="$(jq -r '.originalLanguage.name // empty' <<<"$movie_json" | while IFS= read -r l; do canonical_language "$l"; done)"
+  original_language="$(jq -r '.originalLanguage.name // empty' <<< "$movie_json" | while IFS= read -r l; do canonical_language "$l"; done)"
 
   while IFS= read -r lang; do
     [[ -n "$lang" ]] && detected_langs+=("$lang")
@@ -959,7 +961,7 @@ process_movie() {
 
   if [[ ${#detected_langs[@]} -eq 0 ]]; then
     SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
-    log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq -r '.id' <<<"$movie_json") path=\"$(jq -r '.path // empty' <<<"$file_json")\""
+    log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq -r '.id' <<< "$movie_json") path=\"$(jq -r '.path // empty' <<< "$file_json")\""
     return
   fi
 
@@ -971,7 +973,7 @@ process_movie() {
   for lang in "${detected_langs[@]}"; do
     if language_list_contains "$lang" "${acceptable_langs[@]}"; then
       VALID_FILES_KEPT=$((VALID_FILES_KEPT + 1))
-      debug "keep_file movie_id=$(jq -r '.id' <<<"$movie_json") acceptable_language=$lang"
+      debug "keep_file movie_id=$(jq -r '.id' <<< "$movie_json") acceptable_language=$lang"
       return
     fi
   done
@@ -1180,7 +1182,7 @@ main() {
   if [[ "$FAST_DISCOVERY" == "1" ]]; then
     local discovery_json candidate_json
     discovery_json="$(discover_candidates_fast)"
-    if ! jq -e '.summary and .candidates' >/dev/null 2>&1 <<<"$discovery_json"; then
+    if ! printf '%s' "$discovery_json" | jq -e '.summary and .candidates' >/dev/null 2>&1; then
       log_line "ERROR" "Fast discovery failed"
       exit 1
     fi
@@ -1201,7 +1203,7 @@ main() {
     done < <(jq -c '.candidates[]' <<<"$discovery_json")
   else
     filtered_movies="$(filter_movies_payload "$movies_payload")"
-    if [[ "$(jq 'length' <<<"$filtered_movies")" -eq 0 ]]; then
+    if ! printf '%s' "$filtered_movies" | jq -e 'length > 0' >/dev/null 2>&1; then
       log_line "WARN" "No movies matched filters"
       exit 0
     fi

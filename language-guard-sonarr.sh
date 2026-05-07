@@ -356,7 +356,7 @@ api_post_status() {
 
 api_ok_or_increment_failures() {
   local payload="$1"
-  if ! jq empty >/dev/null 2>&1 <<<"$payload"; then
+  if ! printf '%s' "$payload" | jq empty >/dev/null 2>&1; then
     API_FAILURES=$((API_FAILURES + 1))
     return 1
   fi
@@ -364,13 +364,14 @@ api_ok_or_increment_failures() {
 }
 
 verify_sonarr_connection() {
-  local payload
+  local payload app_name
   payload="$(api_get "/api/v3/system/status")" || {
     log_line "ERROR" "Unable to reach Sonarr at $SONARR_URL"
     exit 1
   }
 
-  if ! jq -e '.appName == "Sonarr"' >/dev/null 2>&1 <<<"$payload"; then
+  app_name="$(printf '%s' "$payload" | jq -r '.appName // empty')"
+  if [[ "$app_name" != "Sonarr" ]]; then
     log_line "ERROR" "Target is not Sonarr or API key is invalid"
     exit 1
   fi
@@ -940,7 +941,7 @@ file_replaceable() {
   local episodes_json="$2"
   local episode_ids_csv="$3"
 
-  if [[ "$(jq -r '.monitored // false' <<<"$series_json")" != "true" ]]; then
+  if ! printf '%s' "$series_json" | jq -e '.monitored == true' >/dev/null 2>&1; then
     return 1
   fi
 
@@ -956,7 +957,7 @@ file_has_unmonitored_content() {
   local episodes_json="$2"
   local episode_ids_csv="$3"
 
-  if [[ "$(jq -r '.monitored // false' <<<"$series_json")" != "true" ]]; then
+  if ! printf '%s' "$series_json" | jq -e '.monitored == true' >/dev/null 2>&1; then
     return 0
   fi
 
@@ -1126,6 +1127,10 @@ process_file() {
   local acceptable_langs=()
   local lang
 
+  if ! printf '%s' "$file_json" | jq -e '.id != null' >/dev/null 2>&1; then
+    return
+  fi
+
   FILES_SCANNED=$((FILES_SCANNED + 1))
   if (( FILES_SCANNED % 250 == 0 )); then
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
@@ -1168,7 +1173,8 @@ process_file() {
 
 process_series() {
   local series_json="$1"
-  local series_id series_title episode_files_json episodes_json
+  local series_id="" series_title="" episode_files_json="" episodes_json="" file_json=""
+
   series_id="$(jq -r '.id' <<<"$series_json")"
   series_title="$(jq -r '.title' <<<"$series_json")"
   SERIES_SCANNED=$((SERIES_SCANNED + 1))
@@ -1187,7 +1193,6 @@ process_series() {
     return
   }
 
-  local file_json
   while IFS= read -r file_json; do
     [[ -z "$file_json" ]] && continue
     process_file "$series_json" "$file_json" "$episodes_json"
@@ -1195,7 +1200,7 @@ process_series() {
       log_line "INFO" "Stopping after MAX_ACTIONS_PER_RUN=$MAX_ACTIONS_PER_RUN"
       return
     fi
-  done < <(jq -c '.[]' <<<"$episode_files_json")
+  done < <(jq -c '.[]' <<< "${episode_files_json:-[]}")
 }
 
 discover_candidates_fast() {
@@ -1436,7 +1441,7 @@ main() {
       done <<<"$progress_lines"
     fi
     discovery_json="$(printf '%s\n' "$discovery_output" | tail -n 1)"
-    if ! jq -e '.summary and .candidates' >/dev/null 2>&1 <<<"$discovery_json"; then
+    if ! printf '%s' "$discovery_json" | jq -e '.summary and .candidates' >/dev/null 2>&1; then
       log_line "ERROR" "Fast discovery failed"
       exit 1
     fi
@@ -1458,7 +1463,7 @@ main() {
     done < <(jq -c '.candidates[]' <<<"$discovery_json")
   else
     filtered_series="$(filter_series_payload "$series_payload")"
-    if [[ "$(jq 'length' <<<"$filtered_series")" -eq 0 ]]; then
+    if ! printf '%s' "$filtered_series" | jq -e 'length > 0' >/dev/null 2>&1; then
       log_line "WARN" "No series matched filters"
       exit 0
     fi
