@@ -522,6 +522,8 @@ state_add_blacklist_entry() {
   local now
   now="$(timestamp)"
 
+  LAST_BLACKLIST_ENTRY_WAS_NEW=0
+
   if state_blacklist_has_key "$key"; then
     if [[ "$DRY_RUN" == "1" ]]; then
       return
@@ -530,7 +532,7 @@ state_add_blacklist_entry() {
       --arg k "$key" --arg now "$now"
   else
     if [[ "$DRY_RUN" == "1" ]]; then
-      SCRIPT_BLACKLIST_ADDITIONS=$((SCRIPT_BLACKLIST_ADDITIONS + 1))
+      LAST_BLACKLIST_ENTRY_WAS_NEW=1
       return
     fi
     state_update '.blacklist[$k] = {
@@ -552,7 +554,7 @@ state_add_blacklist_entry() {
       --arg source_title "$source_title" \
       --arg reason "$reason" \
       --arg now "$now"
-    SCRIPT_BLACKLIST_ADDITIONS=$((SCRIPT_BLACKLIST_ADDITIONS + 1))
+    LAST_BLACKLIST_ENTRY_WAS_NEW=1
   fi
 }
 
@@ -681,13 +683,13 @@ print_state_totals() {
 
   jq -r '
     .stats.totals as $t |
-    "State totals:\n" +
+    "Lifetime (state file, all live runs combined):\n" +
     "  Live runs: \($t.live_runs)\n" +
     "  Files scanned: \($t.files_scanned)\n" +
     "  Invalid files found: \($t.invalid_files_found)\n" +
     "  Files deleted: \($t.files_deleted)\n" +
     "  Searches triggered: \($t.searches_triggered)\n" +
-    "  Script blacklist additions: \($t.script_blacklist_additions)\n" +
+    "  New releases (script blacklist, runs combined): \($t.script_blacklist_additions)\n" +
     "  Script blacklist repeat hits: \($t.script_blacklist_repeat_hits)\n" +
     "  Radarr blacklist successes: \($t.radarr_blacklist_successes)\n" +
     "  Radarr blacklist failures: \($t.radarr_blacklist_failures)"
@@ -881,10 +883,15 @@ process_invalid_file() {
     log_line "WARN" "blacklist_repeat movie=\"$movie_title\" file_id=$file_id release=\"$source_title\""
   fi
 
+  local blacklist_added_this_file=0
   if [[ -n "$primary_key" ]]; then
     state_add_blacklist_entry "$primary_key" "guid" "$guid" "$movie_id" "$movie_title" "${source_title:-$scene_name}" "$reason"
+    [[ "${LAST_BLACKLIST_ENTRY_WAS_NEW:-0}" -eq 1 ]] && blacklist_added_this_file=1
   fi
   state_add_blacklist_entry "$secondary_key" "title" "$normalized_title" "$movie_id" "$movie_title" "${source_title:-$scene_name}" "$reason"
+  [[ "${LAST_BLACKLIST_ENTRY_WAS_NEW:-0}" -eq 1 ]] && blacklist_added_this_file=1
+
+  [[ "$blacklist_added_this_file" -eq 1 ]] && SCRIPT_BLACKLIST_ADDITIONS=$((SCRIPT_BLACKLIST_ADDITIONS + 1))
 
   log_line "INFO" "invalid_file movie=\"$movie_title\" movie_id=$movie_id file_id=$file_id path=\"$path\" detected_languages=\"${detected_langs//$'\n'/,}\" reason=\"$reason\" source_title=\"${source_title:-$scene_name}\""
 
@@ -1103,11 +1110,11 @@ PY
 
 print_summary() {
   cat <<EOF
-Summary:
+This run:
   Files scanned: $FILES_SCANNED
   Valid files kept: $VALID_FILES_KEPT
   Invalid files found: $INVALID_FILES_FOUND
-  Script blacklist additions: $SCRIPT_BLACKLIST_ADDITIONS
+  New releases recorded in script blacklist: $SCRIPT_BLACKLIST_ADDITIONS
   Script blacklist repeat hits: $SCRIPT_BLACKLIST_REPEAT_HITS
   Radarr blacklist successes: $RADARR_BLACKLIST_SUCCESSES
   Radarr blacklist failures: $RADARR_BLACKLIST_FAILURES
