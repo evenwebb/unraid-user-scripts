@@ -26,7 +26,7 @@ set -o pipefail
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
-
+ 
 # Plex appdata on the host (Unraid: folder you map to the container's /config)
 PLEX_PATH="/mnt/user/appdata/plexmediaserver"
 

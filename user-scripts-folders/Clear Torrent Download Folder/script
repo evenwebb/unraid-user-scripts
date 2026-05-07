@@ -28,7 +28,7 @@ set -o pipefail
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
-
+ 
 # Torrent download directory
 DIR_PATH="/mnt/user/downloads/torrents"
 
