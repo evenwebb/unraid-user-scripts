@@ -331,14 +331,27 @@ get_config_range() {
   # Marker line tolerates trailing text (paste/GUI quirks) as long as it still looks like
   # EDIT ... FOR YOUR ... SETUP.
   local file="$1"
-  tr -d '\r' < "$file" | awk '
-    BEGIN { start=0; end=0 }
-    start==0 && $0 ~ /^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP/ {
-      start=NR+1; next
-    }
-    start>0 && end==0 && $0 ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)[[:space:]]*\\{/ { end=NR-1; print start, end; exit }
-    END { if (start>0 && end==0) { end=NR; print start, end } }
-  '
+  local line lineno=0 start=0 end=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    lineno=$((lineno + 1))
+    if [[ $start -eq 0 ]]; then
+      if [[ "$line" =~ ^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP ]]; then
+        start=$((lineno + 1))
+      fi
+      continue
+    fi
+
+    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{ ]]; then
+      end=$((lineno - 1))
+      printf '%s %s\n' "$start" "$end"
+      return 0
+    fi
+  done < "$file"
+
+  if [[ $start -gt 0 ]]; then
+    printf '%s %s\n' "$start" "$lineno"
+  fi
 }
 
 extract_config_block() {
