@@ -29,6 +29,7 @@
 #   - CLEAR_CACHE: 1 = clear cached ZIP/extraction before running, 0 = reuse cache
 #   - INSTALL_MISSING: 1 = install missing folders, 0 = only update existing
 #   - RESET_CONFIG: 1 = reset to upstream default config (no merge), 0 = merge/preserve local values
+#   - RESET_CONFIG_ON_TEXT_CHANGE: 1 = overwrite only scripts whose EDIT block layout/text changed upstream, 0 = preserve local values
 #
 # Notes:
 #   - This script expects source folders in: user-scripts-folders/
@@ -98,6 +99,11 @@ INSTALL_MISSING="0"
 # 1 = reset local config to upstream defaults (no config merge)
 # 0 = preserve local config values by merging (recommended default)
 RESET_CONFIG="0"
+
+# 1 = when upstream EDIT-block comments/order/keys change, reset that script's
+# config block to upstream defaults instead of preserving local values
+# 0 = always preserve local config values unless RESET_CONFIG=1
+RESET_CONFIG_ON_TEXT_CHANGE="0"
 
 ###############################################################################
 
@@ -415,6 +421,40 @@ build_dest_assignment_map() {
   done <<<"$block_text"
 }
 
+config_block_signature() {
+  # Prints a normalized signature of the editable config block:
+  # - assignment values are discarded, only variable keys remain
+  # - comments/blank lines are preserved so upstream text/layout changes are detected
+  local file="$1"
+  local block_text line key
+  block_text="$(extract_config_block "$file" || true)"
+  [[ -z "$block_text" ]] && return 1
+
+  while IFS= read -r line; do
+    if line_is_assignment "$line"; then
+      key="$(assignment_key "$line")"
+      printf 'A:%s\n' "$key"
+      if line_starts_multiline_array "$line"; then
+        while IFS= read -r line; do
+          line_is_array_close "$line" && break
+        done
+      fi
+    else
+      printf 'T:%s\n' "$line"
+    fi
+  done <<<"$block_text"
+}
+
+config_block_text_changed() {
+  local dest_script="$1"
+  local src_script="$2"
+  local dest_sig src_sig
+  dest_sig="$(config_block_signature "$dest_script" || true)"
+  src_sig="$(config_block_signature "$src_script" || true)"
+  [[ -z "$dest_sig" || -z "$src_sig" ]] && return 1
+  [[ "$dest_sig" != "$src_sig" ]]
+}
+
 merge_config_blocks() {
   # Usage: merge_config_blocks <dest_existing_script> <src_new_script> <out_path>
   #
@@ -584,6 +624,12 @@ sync_one_folder() {
 
   validate_bash_script "$src_script" "source script $(basename "$src_folder")" || return 1
 
+  local force_reset_for_text_change=0
+  if [[ "$RESET_CONFIG" != "1" && "$RESET_CONFIG_ON_TEXT_CHANGE" == "1" && -f "$dest_script" ]] &&
+    config_block_text_changed "$dest_script" "$src_script"; then
+    force_reset_for_text_change=1
+  fi
+
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
       log "Skipping missing folder (not installed): $(basename "$dest_folder")"
@@ -602,7 +648,7 @@ sync_one_folder() {
   local merged
   merged="$(mktemp)"
   if [[ -f "$dest_script" ]]; then
-    if [[ "$RESET_CONFIG" == "1" ]]; then
+    if [[ "$RESET_CONFIG" == "1" || "$force_reset_for_text_change" == "1" ]]; then
       cp "$src_script" "$merged"
     else
       # If dest matches upstream (normalized), merge cannot change anything — skip
@@ -656,7 +702,11 @@ sync_one_folder() {
     return 2
   fi
 
-  log "Updating folder: $(basename "$dest_folder") (${reasons[*]})"
+  if [[ "$force_reset_for_text_change" == "1" ]]; then
+    log "Updating folder: $(basename "$dest_folder") (${reasons[*]}; config reset due to upstream EDIT-block text change)"
+  else
+    log "Updating folder: $(basename "$dest_folder") (${reasons[*]})"
+  fi
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
     backup_file "$dest_script" "$(basename "$dest_folder")"
@@ -710,6 +760,10 @@ main() {
   fi
   if [[ "$RESET_CONFIG" != "0" && "$RESET_CONFIG" != "1" ]]; then
     log_err "RESET_CONFIG must be 0 or 1"
+    return 1
+  fi
+  if [[ "$RESET_CONFIG_ON_TEXT_CHANGE" != "0" && "$RESET_CONFIG_ON_TEXT_CHANGE" != "1" ]]; then
+    log_err "RESET_CONFIG_ON_TEXT_CHANGE must be 0 or 1"
     return 1
   fi
 
