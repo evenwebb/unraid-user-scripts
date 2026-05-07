@@ -296,17 +296,30 @@ clear_nzbget_failed() {
 _arr_queue() {
   local app="$1" base_url="$2" api_key="$3" page=1 records=""
   while true; do
-    local resp
-    resp=$(_curl -s -S -m "${CURL_TIMEOUT}" -H "X-Api-Key: ${api_key}" \
+    local resp code body
+    resp=$(_curl -s -S -m "${CURL_TIMEOUT}" -w "\n%{http_code}" -H "X-Api-Key: ${api_key}" \
+      -H "Accept: application/json" \
       "${base_url}/api/v3/queue?page=${page}&pageSize=${QUEUE_PAGE_SIZE}") || { log_err "${app} queue request failed"; return 1; }
-    if ! jq -e '.records' <<< "$resp" &>/dev/null; then
-      log_err "${app}: queue response invalid (missing .records)"
+    code=$(echo "$resp" | tail -n1)
+    body=$(echo "$resp" | sed '$d')
+    if [[ "$code" != "200" ]] || ! jq -e . <<< "$body" &>/dev/null; then
+      log_err "${app}: queue request failed (HTTP ${code}). Check URL/API key. Body: ${body:0:300}"
       return 1
     fi
-    local count
-    count=$(jq -r '.records | length' <<< "$resp" 2>/dev/null) || count=0
-    [[ -z "$count" || ! "$count" =~ ^[0-9]+$ ]] && count=0
-    records+=$(jq -c '.records[]?' <<< "$resp" 2>/dev/null)
+
+    local count=0
+    if jq -e '.records' <<< "$body" &>/dev/null; then
+      count=$(jq -r '.records | length' <<< "$body" 2>/dev/null) || count=0
+      [[ -z "$count" || ! "$count" =~ ^[0-9]+$ ]] && count=0
+      records+=$(jq -c '.records[]?' <<< "$body" 2>/dev/null)
+    elif [[ "$(jq -r 'type' <<< "$body" 2>/dev/null)" == "array" ]]; then
+      count=$(jq -r 'length' <<< "$body" 2>/dev/null) || count=0
+      [[ -z "$count" || ! "$count" =~ ^[0-9]+$ ]] && count=0
+      records+=$(jq -c '.[]?' <<< "$body" 2>/dev/null)
+    else
+      log_err "${app}: queue response invalid (expected .records or array). Body: ${body:0:300}"
+      return 1
+    fi
     [[ "$count" -lt "$QUEUE_PAGE_SIZE" ]] && break
     ((page++))
   done

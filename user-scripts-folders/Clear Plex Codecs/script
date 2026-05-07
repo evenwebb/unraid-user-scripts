@@ -11,7 +11,8 @@
 #   ./clear-plex-codecs.sh
 #
 # Configuration:
-#   - PLEX_CODECS_PATH: Path to Plex Media Server Codecs directory (edit for your appdata path)
+#   - PLEX_PATH: Host path to Plex appdata (Docker /config mapping; contains Library/…)
+#   - PLEX_CODECS_PATH: Derived from PLEX_PATH unless you set it explicitly below
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 #
@@ -26,8 +27,19 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Plex codecs directory (common Unraid path below)
-PLEX_CODECS_PATH="/mnt/user/appdata/plexmediaserver/Library/Application Support/Plex Media Server/Codecs"
+# Plex appdata on the host (Unraid: folder you map to the container's /config)
+PLEX_PATH="/mnt/user/appdata/plexmediaserver"
+
+# Codecs folder (leave empty = under PLEX_PATH; set full path only if yours differs)
+PLEX_CODECS_PATH=""
+
+if [[ -z "$PLEX_CODECS_PATH" ]]; then
+    if [[ -z "$PLEX_PATH" ]]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Set PLEX_PATH (appdata root) or set PLEX_CODECS_PATH to the Codecs directory." >&2
+        exit 1
+    fi
+    PLEX_CODECS_PATH="${PLEX_PATH}/Library/Application Support/Plex Media Server/Codecs"
+fi
 
 ###############################################################################
 
@@ -51,12 +63,12 @@ is_safe_plex_codecs_path() {
 
 main() {
     if ! is_safe_plex_codecs_path "$PLEX_CODECS_PATH"; then
-        log_err "Refusing to delete: path does not look like a Plex path (must contain 'plex'). Set PLEX_CODECS_PATH correctly."
+        log_err "Refusing to delete: path does not look like a Plex path (must contain 'plex'). Set PLEX_PATH / PLEX_CODECS_PATH correctly."
         return 1
     fi
     if [[ ! -d "$PLEX_CODECS_PATH" ]]; then
-        log_err "Directory does not exist: $PLEX_CODECS_PATH"
-        return 1
+        log "Directory does not exist (nothing to do): $PLEX_CODECS_PATH"
+        return 0
     fi
 
     log "Deleting all contents inside: $PLEX_CODECS_PATH"
