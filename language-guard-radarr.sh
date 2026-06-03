@@ -467,6 +467,20 @@ language_list_contains() {
   return 1
 }
 
+single_non_english_language() {
+  local found="" lang
+  for lang in "$@"; do
+    [[ -z "$lang" || "$lang" == "english" || "$lang" == "unknown" ]] && continue
+    if [[ -z "$found" ]]; then
+      found="$lang"
+    elif [[ "$lang" != "$found" ]]; then
+      return 1
+    fi
+  done
+  [[ -n "$found" ]] || return 1
+  printf '%s' "$found"
+}
+
 ###############################################################################
 # Movie and history helpers
 ###############################################################################
@@ -963,6 +977,7 @@ process_movie() {
   fi
 
   original_language="$(jq_read "$movie_json" -r '.originalLanguage.name // empty' | while IFS= read -r l; do canonical_language "$l"; done)"
+  [[ "$original_language" == "unknown" ]] && original_language=""
 
   while IFS= read -r lang; do
     [[ -n "$lang" ]] && detected_langs+=("$lang")
@@ -972,6 +987,16 @@ process_movie() {
     SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
     log_line "WARN" "skip_ambiguous no_languages movie_id=$(jq_read "$movie_json" -r '.id') path=\"$(jq_read "$file_json" -r '.path // empty')\""
     return
+  fi
+
+  if [[ -z "$original_language" ]]; then
+    local inferred_original=""
+    inferred_original="$(single_non_english_language "${detected_langs[@]}")" || inferred_original=""
+    if [[ -n "$inferred_original" ]]; then
+      SKIPPED_AMBIGUOUS=$((SKIPPED_AMBIGUOUS + 1))
+      log_line "WARN" "skip_ambiguous missing_original_language movie_id=$(jq_read "$movie_json" -r '.id') inferred_original=$inferred_original path=\"$(jq_read "$file_json" -r '.path // empty')\""
+      return
+    fi
   fi
 
   acceptable_langs=("english")
@@ -1033,10 +1058,29 @@ def canon(raw):
         "de": "german", "deu": "german", "ger": "german", "german": "german",
         "it": "italian", "ita": "italian", "italian": "italian",
         "es": "spanish", "spa": "spanish", "spanish": "spanish",
+        "pt": "portuguese", "por": "portuguese", "portuguese": "portuguese",
+        "ptbr": "portuguesebrazil", "portuguesebrazil": "portuguesebrazil", "brazilianportuguese": "portuguesebrazil",
         "nl": "dutch", "dut": "dutch", "nld": "dutch", "dutch": "dutch",
+        "da": "danish", "dan": "danish", "danish": "danish",
+        "fi": "finnish", "fin": "finnish", "finnish": "finnish",
+        "no": "norwegian", "nor": "norwegian", "norwegian": "norwegian",
+        "sv": "swedish", "swe": "swedish", "swedish": "swedish",
         "ru": "russian", "rus": "russian", "russian": "russian",
+        "uk": "ukrainian", "ukr": "ukrainian", "ukrainian": "ukrainian",
+        "cs": "czech", "cze": "czech", "ces": "czech", "czech": "czech",
         "pl": "polish", "pol": "polish", "polish": "polish",
         "tr": "turkish", "tur": "turkish", "turkish": "turkish",
+        "ja": "japanese", "jpn": "japanese", "japanese": "japanese",
+        "ko": "korean", "kor": "korean", "korean": "korean",
+        "zh": "chinese", "chi": "chinese", "zho": "chinese", "chinese": "chinese",
+        "hi": "hindi", "hin": "hindi", "hindi": "hindi",
+        "ar": "arabic", "ara": "arabic", "arabic": "arabic",
+        "el": "greek", "gre": "greek", "ell": "greek", "greek": "greek",
+        "he": "hebrew", "heb": "hebrew", "hebrew": "hebrew",
+        "ro": "romanian", "rum": "romanian", "ron": "romanian", "romanian": "romanian",
+        "hu": "hungarian", "hun": "hungarian", "hungarian": "hungarian",
+        "bg": "bulgarian", "bul": "bulgarian", "bulgarian": "bulgarian",
+        "ca": "catalan", "cat": "catalan", "catalan": "catalan",
         "is": "icelandic", "ice": "icelandic", "isl": "icelandic", "icelandic": "icelandic",
     }
     return mapping.get(raw, raw)
@@ -1084,11 +1128,17 @@ def main():
             summary["skipped_unmonitored"] += 1
             continue
         original = canon(((movie.get("originalLanguage") or {}).get("name")) or "")
+        if original == "unknown":
+            original = ""
         acceptable = {"english"}
         if original and original != "english":
             acceptable.add(original)
         langs = audio_langs(file_obj)
         if not langs:
+            summary["skipped_ambiguous"] += 1
+            continue
+        inferred_non_english = sorted({lang for lang in langs if lang and lang not in {"english", "unknown"}})
+        if not original and len(inferred_non_english) == 1:
             summary["skipped_ambiguous"] += 1
             continue
         if any(lang in acceptable for lang in langs):

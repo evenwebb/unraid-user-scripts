@@ -401,7 +401,7 @@ main() {
             fi
             [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
         fi
-    done < <(jq -r '.[] | [.id, (.title // ""), (.year // 0), (.qualityProfileId // 0)] | @tsv' "$TMP_FILE")
+    done < <(jq -r '[.id, (.title // ""), (.year // 0), (.qualityProfileId // 0)] | @tsv' "$TMP_FILE")
 
     rm -f "$TMP_FILE"
 
