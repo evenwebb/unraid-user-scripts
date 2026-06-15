@@ -113,7 +113,8 @@ is_plex_http_ok() {
     esac
 }
 
-# GET URL → prints HTTP code or 000
+# GET URL -> prints HTTP code or 000 (curl uses 000 to signal connection failure;
+# no real HTTP status code is 000, so this is unambiguous by design).
 curl_http_code() {
     local url="$1"
     curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$url" 2>/dev/null || echo "000"

@@ -303,12 +303,38 @@ prepare_source_folders() {
 
   # Always extract so DRY_RUN can still produce a real preview.
   require_cmd unzip
-  rm -rf "$extract_dir" 2>/dev/null || true
-  mkdir -p "$extract_dir" 2>/dev/null || true
-  unzip -q "$zip_path" -d "$extract_dir" || {
-    log_err "Failed to unzip: $zip_path"
-    return 1
-  }
+
+  # Compute ZIP fingerprint to skip redundant extraction
+  local zip_fingerprint
+  zip_fingerprint=$(md5sum "$zip_path" 2>/dev/null | awk '{print $1}' || true)
+  local fingerprint_file="$extract_dir/.zip-fingerprint"
+
+  if [[ -d "$extract_dir" && -f "$fingerprint_file" && -n "$zip_fingerprint" ]]; then
+    local stored_fp
+    stored_fp=$(tr -d '\r\n' < "$fingerprint_file" 2>/dev/null || true)
+    if [[ "$zip_fingerprint" == "$stored_fp" ]]; then
+      log_stderr "ZIP fingerprint unchanged; reusing cached extraction."
+    else
+      log_stderr "ZIP fingerprint changed; re-extracting."
+      rm -rf "$extract_dir" 2>/dev/null || true
+      mkdir -p "$extract_dir" 2>/dev/null || true
+      unzip -q "$zip_path" -d "$extract_dir" || {
+        log_err "Failed to unzip: $zip_path"
+        return 1
+      }
+      printf '%s\n' "$zip_fingerprint" > "$fingerprint_file"
+    fi
+  else
+    rm -rf "$extract_dir" 2>/dev/null || true
+    mkdir -p "$extract_dir" 2>/dev/null || true
+    unzip -q "$zip_path" -d "$extract_dir" || {
+      log_err "Failed to unzip: $zip_path"
+      return 1
+    }
+    if [[ -n "$zip_fingerprint" ]]; then
+      printf '%s\n' "$zip_fingerprint" > "$fingerprint_file"
+    fi
+  fi
   # ZIP contains a single top-level folder.
   local top_dir
   top_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)"

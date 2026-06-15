@@ -401,6 +401,16 @@ canonical_language() {
     he|heb|hebrew) printf 'hebrew' ;;
     hu|hun|hungarian) printf 'hungarian' ;;
     ca|cat|catalan) printf 'catalan' ;;
+    da|dan|danish) printf 'danish' ;;
+    fi|fin|finnish) printf 'finnish' ;;
+    uk|ukr|ukrainian) printf 'ukrainian' ;;
+    cs|cze|ces|czech) printf 'czech' ;;
+    zh|chi|zho|chinese) printf 'chinese' ;;
+    hi|hin|hindi) printf 'hindi' ;;
+    el|gre|ell|greek) printf 'greek' ;;
+    ro|rum|ron|romanian) printf 'romanian' ;;
+    bg|bul|bulgarian) printf 'bulgarian' ;;
+    ptbr|portuguesebrazil|brazilianportuguese) printf 'portuguesebrazil' ;;
     unknown|und) printf 'unknown' ;;
     *) printf '%s' "$raw" ;;
   esac

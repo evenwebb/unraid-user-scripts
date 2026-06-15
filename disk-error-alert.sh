@@ -201,6 +201,8 @@ main() {
     LC_ALL=C sort -u "$tmp" -o "$sorted" 2>/dev/null || true
     if [[ -s "$sorted" ]]; then
         total_count=$(wc -l <"$sorted" | tr -d '[:space:]')
+        # Guard against non-numeric wc output (e.g. if sorted file is missing or wc fails,
+        # the result could contain error text instead of digits). Fall back to 0 in that case.
         [[ "$total_count" != *[0-9]* ]] && total_count=0
     fi
 

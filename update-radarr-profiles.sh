@@ -275,7 +275,7 @@ main() {
     local http_code
     http_code=$(echo "$movie_response" | tail -n1)
     local movie_json
-    movie_json=$(echo "$movie_response" | sed '$d')
+    movie_json=$(printf '%s\n' "$movie_response" | sed '$d')
 
     if [[ "$http_code" != "200" ]] || ! echo "$movie_json" | jq -e . >/dev/null 2>&1; then
         log_err "Failed to fetch movies from Radarr (HTTP $http_code or invalid JSON)."
@@ -337,6 +337,7 @@ main() {
     local search_ids=()
     local TMP_FILE
     TMP_FILE=$(mktemp) || { log_err "Failed to create temp file"; return 1; }
+    trap 'rm -f "$TMP_FILE"' EXIT
     echo "$MOVIES" | jq -c '.[]' > "$TMP_FILE"
 
     while IFS=$'\t' read -r MOVIE_ID MOVIE_TITLE MOVIE_YEAR PROFILE_ID; do

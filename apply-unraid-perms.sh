@@ -75,26 +75,49 @@ is_dangerous_path() {
     return 1
 }
 
-# Remove duplicates and paths that are subpaths of others (process parent only)
+# Remove duplicates and paths that are subpaths of others (process parent only).
+# Uses an associative array for O(n * depth) lookup instead of O(n^2).
 dedupe_paths() {
-    local -a result=()
-    local p q
+    local -A path_set=()
+    local -a sorted=()
+    local p parent
+
+    # Build set of all input paths
     for p in "$@"; do
         [[ -z "$p" ]] && continue
-        local skip=0
-        for q in "$@"; do
-            [[ -z "$q" || "$p" == "$q" ]] && continue
-            if [[ "$p" == "$q"/* ]]; then
-                skip=1
-                break
+        path_set["$p"]=1
+    done
+
+    # Sort paths by length (shorter paths first — parents come before children)
+    for p in "${!path_set[@]}"; do
+        sorted+=("$p")
+    done
+    # Simple bubble-like insertion for few paths (typically 2-5 entries)
+    local i j tmp
+    for ((i = 0; i < ${#sorted[@]}; i++)); do
+        for ((j = i + 1; j < ${#sorted[@]}; j++)); do
+            if [[ ${#sorted[j]} -lt ${#sorted[i]} ]]; then
+                tmp="${sorted[i]}"
+                sorted[i]="${sorted[j]}"
+                sorted[j]="$tmp"
             fi
         done
-        [[ $skip -eq 1 ]] && continue
-        local seen=0
-        for q in "${result[@]}"; do
-            [[ "$p" == "$q" ]] && { seen=1; break; }
+    done
+
+    local -a result=()
+    local -A parent_seen=()
+    for p in "${sorted[@]}"; do
+        # Check if any parent path already in result
+        parent="$p"
+        local is_child=0
+        while [[ "$parent" != "/" && "$parent" != "." ]]; do
+            parent="${parent%/*}"
+            [[ -n "${parent_seen[$parent]:-}" ]] && { is_child=1; break; }
         done
-        [[ $seen -eq 0 ]] && result+=("$p")
+        if [[ $is_child -eq 0 ]]; then
+            parent_seen["$p"]=1
+            result+=("$p")
+        fi
     done
     printf '%s\n' "${result[@]}"
 }
