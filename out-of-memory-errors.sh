@@ -143,11 +143,11 @@ main() {
                 local desc="OOM error found in syslog ($oom_count occurrence(s))."
                 [[ -n "$process_info" ]] && desc+=$'\n'"$process_info"
                 "$NOTIFY_SCRIPT" -e "OOM Checker" -s "Checked for OOM in syslog" -d "$desc" -i "alert" || true
-                if [[ "$ENABLE_STATE_TRACKING" == "1" ]]; then
-                    write_oom_state "$STATE_FILE" "$oom_count" || true
-                fi
             else
                 log "Warning: NOTIFY_SCRIPT not executable, alert not sent."
+            fi
+            if [[ "$ENABLE_STATE_TRACKING" == "1" ]]; then
+                write_oom_state "$STATE_FILE" "$oom_count" || true
             fi
         fi
         return 1
