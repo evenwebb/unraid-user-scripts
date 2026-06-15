@@ -1,1 +1,1 @@
-Unraid user script
+🆕 Monitors Unraid parity check progress and sends notifications at start, configurable milestones (e.g. every 25%), and completion. Reports duration, ETA, and any errors found.

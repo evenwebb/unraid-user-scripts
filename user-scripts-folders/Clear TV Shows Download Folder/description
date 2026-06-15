@@ -1,1 +1,1 @@
-Empties the TV shows download directory and prints a summary.
+Empties the TV shows download directory and prints a summary. Respects file age limits.

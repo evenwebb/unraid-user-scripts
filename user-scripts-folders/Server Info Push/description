@@ -1,1 +1,1 @@
-Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Unraid dynamix notify. Hides Docker section when Docker is not started.
+Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Unraid dynamix notify. Each section can be individually toggled on/off.

@@ -1,1 +1,1 @@
-Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.
+Lists Docker container log file sizes (largest first) with optional per-container breakdown and trend tracking across runs.

@@ -1,1 +1,1 @@
-Runs a Btrfs scrub on a cache/device, logs output, and sends Unraid notifications on start/success/failure.
+Runs a Btrfs scrub on a cache/device, logs output, and sends Unraid notifications on start/success/failure. Supports resuming interrupted scrubs.

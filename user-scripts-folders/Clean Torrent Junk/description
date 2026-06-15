@@ -1,1 +1,1 @@
-Removes torrent download junk (nfo, par2, samples, RAR splits, etc.) and empty directories.
+Removes torrent download junk (nfo, par2, samples, RAR splits, etc.) and empty directories. Respects file age limits and exclude patterns.

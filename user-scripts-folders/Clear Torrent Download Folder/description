@@ -1,1 +1,1 @@
-Empties the torrent download directory and prints a summary.
+Empties the torrent download directory and prints a summary. Respects file age limits.

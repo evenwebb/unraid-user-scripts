@@ -1,1 +1,1 @@
-Unraid user script
+🆕 Monitors docker.img disk usage percentage and sends Unraid notifications at warning (70%) and critical (85%) thresholds. Escalation only fires once per crossing, with auto-reset when usage drops.

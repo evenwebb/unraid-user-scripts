@@ -1,1 +1,1 @@
-Empties the movies download directory and prints a summary.
+Empties the movies download directory and prints a summary. Respects file age limits.
