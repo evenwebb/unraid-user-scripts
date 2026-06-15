@@ -195,10 +195,10 @@ main() {
     start_time=$(date +%s)
 
     if [[ -n "$comp_flag" ]]; then
-        tar -c${comp_flag}f "$backup_path" -C / boot "${exclude_args[@]}" 2>/dev/null
+        tar "${exclude_args[@]}" -c${comp_flag}f "$backup_path" -C / boot 2>/dev/null
         exit_code=$?
     else
-        tar -cf "$backup_path" -C / boot "${exclude_args[@]}" 2>/dev/null
+        tar "${exclude_args[@]}" -cf "$backup_path" -C / boot 2>/dev/null
         exit_code=$?
     fi
 
