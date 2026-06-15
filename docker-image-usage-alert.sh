@@ -102,7 +102,8 @@ log_err() {
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'"'"'
+'"'"'* ]] && return 1
     return 0
 }
 
@@ -159,11 +160,11 @@ list_largest_containers() {
 }
 
 # Trigger Unraid notification
-send_notify() {
-    local level="$1" event="$2" subject="$3" desc="$4" importance="$5"
-    if [[ -n "$NOTIFY_SCRIPT" ]] && is_safe_path "$NOTIFY_SCRIPT" && [[ -x "$NOTIFY_SCRIPT" ]]; then
-        "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$desc" -i "$importance" 2>/dev/null || true
-    fi
+send_unraid_notify() {
+    local event="$1" subject="$2" description="$3" importance="${4:-normal}"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    is_safe_path "$NOTIFY_SCRIPT" || return 0
+    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
 }
 
 main() {
@@ -217,14 +218,14 @@ main() {
 
     if [[ "$current_level" -eq 2 && "$prev_level" -lt 2 ]]; then
         log "CRITICAL: Docker image at ${usage_pct}% (threshold: ${CRITICAL_THRESHOLD_PCT}%)."
-        send_notify "critical" "Docker Image Critical" \
+        send_unraid_notify "critical" "Docker Image Critical" \
             "Docker image critically full" \
             "Docker image usage is ${usage_pct}% (${usage_human}). Containers may fail if it fills completely.${container_info}" \
             "alert"
         write_state_level "$STATE_FILE" 2 || true
     elif [[ "$current_level" -eq 1 && "$prev_level" -lt 1 ]]; then
         log "WARNING: Docker image at ${usage_pct}% (threshold: ${WARNING_THRESHOLD_PCT}%)."
-        send_notify "warning" "Docker Image Warning" \
+        send_unraid_notify "warning" "Docker Image Warning" \
             "Docker image usage warning" \
             "Docker image usage is ${usage_pct}% (${usage_human}). Consider cleaning up unused images/volumes.${container_info}" \
             "warning"
