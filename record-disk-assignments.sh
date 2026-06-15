@@ -34,6 +34,9 @@ DISKS_INI="/var/local/emhttp/disks.ini"
 # Output file path
 OUTPUT_FILE="/boot/config/DISK_ASSIGNMENTS.txt"
 
+# 1 = also write a JSON version alongside the text file (OUTPUT_FILE.json)
+JSON_OUTPUT="0"
+
 ###############################################################################
 
 log() {
@@ -97,6 +100,31 @@ main() {
     flush_disk
 
     log "Disk assignments saved to $OUTPUT_FILE"
+
+    if [[ "$JSON_OUTPUT" == "1" ]]; then
+        local json_file="${OUTPUT_FILE}.json"
+        {
+            echo "{"
+            echo "  "date": "$(date -Iseconds)","
+            echo "  "disks": ["
+            local first=1 dname did dstatus
+            while IFS= read -r line; do
+                [[ -z "$line" || "$line" == "Disk Assignments as of"* ]] && continue
+                if [[ "$line" =~ ^Disk:[[:space:]]+(.*)[[:space:]]+Device:[[:space:]]+(.*)[[:space:]]+Status:[[:space:]]+(.*) ]]; then
+                    dname="${BASH_REMATCH[1]}"
+                    did="${BASH_REMATCH[2]}"
+                    dstatus="${BASH_REMATCH[3]}"
+                    [[ $first -eq 0 ]] && echo ","
+                    printf '    {"name": "%s", "device": "%s", "status": "%s"}' "$dname" "$did" "$dstatus"
+                    first=0
+                fi
+            done < "$OUTPUT_FILE"
+            echo ""
+            echo "  ]"
+            echo "}"
+        } > "$json_file" || log_err "Failed to write JSON output: $json_file"
+        log "JSON disk assignments saved to $json_file"
+    fi
 }
 
 main "$@"

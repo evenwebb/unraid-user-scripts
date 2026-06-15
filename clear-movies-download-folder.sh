@@ -35,6 +35,9 @@ DIR_PATH="/mnt/user/downloads/complete/movies"
 # 1 = preview only, 0 = delete contents
 DRY_RUN="0"
 
+# Skip items modified less than N minutes ago (0 = no minimum age)
+MIN_AGE_MINUTES="5"
+
 # Optional: Unraid dynamix notify (empty = skip notification after clear)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
@@ -88,7 +91,11 @@ is_safe_delete_path() {
 
 clear_directory_contents() {
     local dir="$1"
-    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null
+    local age_args=()
+    if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+        age_args=(-mmin "+${MIN_AGE_MINUTES}")
+    fi
+    find "$dir" -mindepth 1 -maxdepth 1 "${age_args[@]}" -exec rm -rf -- {} + 2>/dev/null
 }
 
 main() {
@@ -111,7 +118,11 @@ main() {
     fi
 
     # Measure before deletion
-    before_count=$(find "$DIR_PATH" -mindepth 1 2>/dev/null | wc -l)
+    local age_args=()
+    if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+        age_args=(-mmin "+${MIN_AGE_MINUTES}")
+    fi
+    before_count=$(find "$DIR_PATH" -mindepth 1 "${age_args[@]}" 2>/dev/null | wc -l)
     before_size=$(du -sh "$DIR_PATH" 2>/dev/null | awk '{print $1}')
 
     if [[ "$DRY_RUN" == "1" ]]; then

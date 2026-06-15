@@ -51,6 +51,14 @@ CHMOD_FLAGS="u-x,go-rwx,go+u,ugo+X"
 # Behaviour
 DRY_RUN="0"
 
+# Paths to skip within PERM_PATHS (e.g. "*/Downloads/*" or "*/system/docker/*")
+# Glob patterns are matched against full file paths via find -path
+EXCLUDE_PATHS=()
+
+# Number of parallel jobs (0 = sequential chmod -R, >0 = xargs -P parallel)
+# Parallel mode is faster on large arrays but may stress disk I/O
+PARALLEL_JOBS="0"
+
 ###############################################################################
 
 log() {
@@ -158,22 +166,47 @@ main() {
 
         log "Applying permissions to: $path"
 
+        # Build exclude args for find
+        local exclude_args=()
+        local ep
+        for ep in "${EXCLUDE_PATHS[@]}"; do
+            [[ -z "$ep" ]] && continue
+            exclude_args+=(-not -path "$ep")
+        done
+
         if [[ "$DRY_RUN" == "1" ]]; then
-            log "[DRY-RUN] would run: chmod -R $CHMOD_FLAGS $path"
-            log "[DRY-RUN] would run: chown -R $OWNER_GROUP $path"
+            log "[DRY-RUN] would apply: chmod $CHMOD_FLAGS / chown $OWNER_GROUP on $path"
+            [[ ${#exclude_args[@]} -gt 0 ]] && log "[DRY-RUN] exclude patterns: ${EXCLUDE_PATHS[*]}"
+            [[ "$PARALLEL_JOBS" -gt 0 ]] && log "[DRY-RUN] parallel mode: $PARALLEL_JOBS jobs"
             continue
         fi
 
-        if ! chmod -R $CHMOD_FLAGS "$path"; then
-            log_err "chmod failed for $path"
-            any_failed=1
-            continue
-        fi
-
-        if ! chown -R "$OWNER_GROUP" "$path"; then
-            log_err "chown failed for $path"
-            any_failed=1
-            continue
+        if [[ "$PARALLEL_JOBS" -gt 0 ]] && [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]]; then
+            # Parallel mode: use find + xargs -P for faster processing on large dirs
+            find "$path" -xdev -type d "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -P "$PARALLEL_JOBS" -n 50 chmod "$CHMOD_FLAGS" 2>/dev/null || true
+            find "$path" -xdev -type f "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -P "$PARALLEL_JOBS" -n 100 chmod "$CHMOD_FLAGS" 2>/dev/null || true
+            find "$path" -xdev "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -P "$PARALLEL_JOBS" -n 100 chown "$OWNER_GROUP" -- 2>/dev/null || true
+            log "Parallel permissions applied to $path"
+        else
+            # Sequential mode (original chmod -R behavior)
+            if [[ ${#exclude_args[@]} -gt 0 ]]; then
+                find "$path" -xdev "${exclude_args[@]}" -exec chmod "$CHMOD_FLAGS" {} + 2>/dev/null || true
+                find "$path" -xdev "${exclude_args[@]}" -exec chown "$OWNER_GROUP" -- {} + 2>/dev/null || true
+            else
+                if ! chmod -R $CHMOD_FLAGS "$path"; then
+                    log_err "chmod failed for $path"
+                    any_failed=1
+                    continue
+                fi
+                if ! chown -R "$OWNER_GROUP" "$path"; then
+                    log_err "chown failed for $path"
+                    any_failed=1
+                    continue
+                fi
+            fi
         fi
     done
 

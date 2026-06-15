@@ -32,6 +32,12 @@ set -o pipefail
 # 1 = dry-run (no deletions), 0 = production
 DRY_RUN="0"
 
+# Skip files modified less than N minutes ago (0 = no minimum age)
+MIN_AGE_MINUTES="5"
+
+# Glob patterns to exclude from deletion (e.g. "*.nfo" to keep metadata files)
+EXCLUDE_PATTERNS=()
+
 # Directories to clean - EDIT THESE FOR YOUR SETUP
 FOLDERS=(
     "/mnt/user/downloads/complete/tv"
@@ -72,6 +78,22 @@ is_safe_path() {
     return 0
 }
 
+# Build extra find args for min age and exclude patterns
+_build_extra_find_args() {
+    local result=()
+    # Min age: only match files older than MIN_AGE_MINUTES
+    if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+        result+=(-mmin "+${MIN_AGE_MINUTES}")
+    fi
+    # Exclude patterns
+    local ep
+    for ep in "${EXCLUDE_PATTERNS[@]}"; do
+        [[ -z "$ep" ]] && continue
+        result+=(! -iname "$ep")
+    done
+    printf '%s\n' "${result[@]}"
+}
+
 # Delete junk files by extension (uses find for performance)
 delete_junk_files() {
     local dir="$1"
@@ -91,7 +113,6 @@ delete_junk_files() {
     for p in "${JUNK_EXTENSIONS[@]}"; do
         [[ -z "$p" ]] && continue
         lower="${p,,}"
-        # RAR split patterns: handle via -regex for full coverage
         if [[ "$lower" == ".r[0-9]" || "$lower" == ".r[0-9][0-9]" ]]; then
             has_r_splits=1
             continue
@@ -103,7 +124,6 @@ delete_junk_files() {
         added=1
     done
 
-    # Add RAR split pattern via regex (case-insensitive match on extension)
     if [[ $has_r_splits -eq 1 ]]; then
         if [[ $added -gt 0 ]]; then
             find_args+=(-o)
@@ -117,12 +137,18 @@ delete_junk_files() {
         return 0
     fi
 
+    # Read extra args (min age, excludes)
+    local extra_args=()
+    while IFS= read -r arg; do
+        [[ -n "$arg" ]] && extra_args+=("$arg")
+    done < <(_build_extra_find_args)
+
     local count
     if [[ "$DRY_RUN" == "1" ]]; then
-        count=$(find "$dir" -xdev -type f \( "${find_args[@]}" \) -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" \( "${find_args[@]}" \) -print 2>/dev/null | wc -l)
         log "Found $count junk file(s) (dry run)"
     else
-        count=$(find "$dir" -xdev -type f \( "${find_args[@]}" \) -delete -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" \( "${find_args[@]}" \) -delete -print 2>/dev/null | wc -l)
         log "Deleted $count junk file(s)"
     fi
 }
@@ -137,12 +163,17 @@ delete_sample_files() {
 
     log "Scanning for sample files in: $dir"
 
+    local extra_args=()
+    while IFS= read -r arg; do
+        [[ -n "$arg" ]] && extra_args+=("$arg")
+    done < <(_build_extra_find_args)
+
     local count
     if [[ "$DRY_RUN" == "1" ]]; then
-        count=$(find "$dir" -xdev -type f -iname "*sample*" -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" -iname "*sample*" -print 2>/dev/null | wc -l)
         log "Found $count sample file(s) (dry run)"
     else
-        count=$(find "$dir" -xdev -type f -iname "*sample*" -delete -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" -iname "*sample*" -delete -print 2>/dev/null | wc -l)
         log "Deleted $count sample file(s)"
     fi
 }

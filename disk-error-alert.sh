@@ -67,6 +67,15 @@ EXCLUDE_PATTERNS=(
     "write errors: 0"
 )
 
+# 1 = extract disk identifiers (mdX, sdX) from error lines and track per-disk counts
+ENABLE_PER_DISK_TRACKING="1"
+
+# 1 = cross-reference disks with errors against SMART data (requires smartctl)
+ENABLE_SMART_CORRELATION="1"
+
+# Path to smartctl (usually /usr/sbin/smartctl on Unraid)
+SMARTCTL_PATH="/usr/sbin/smartctl"
+
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
@@ -137,6 +146,42 @@ write_stored_error_total() {
         return 1
     fi
     return 0
+}
+
+# Extract disk identifiers (sdX, mdX, nvmeXnY) from error lines.
+# Reads sorted match file ($1), prints unique disk IDs one per line.
+extract_disk_ids() {
+    local sorted_file="$1"
+    grep -o -E '\b(sd[a-z]+|md[0-9]+|nvme[0-9]+n[0-9]+)\b' "$sorted_file" 2>/dev/null | sort -u || true
+}
+
+# Check SMART health for a disk device. Prints a one-line summary.
+# $1 = device name (e.g. sda, nvme0n1)
+get_smart_health() {
+    local dev="$1"
+    local smartctl="${SMARTCTL_PATH:-/usr/sbin/smartctl}"
+    if [[ ! -x "$smartctl" ]]; then
+        echo "  (smartctl not found)"
+        return 0
+    fi
+    local dev_path="/dev/$dev"
+    if [[ ! -e "$dev_path" ]]; then
+        echo "  (device $dev_path not found)"
+        return 0
+    fi
+
+    local health raw realloc pending udma
+    # Overall health status
+    health=$("$smartctl" -H "$dev_path" 2>/dev/null | grep -i 'SMART.*Health\|SMART.*PASSED\|SMART.*OK' | head -n1 | sed 's/^[[:space:]]*//' || echo "")
+    [[ -z "$health" ]] && health="SMART status unknown"
+
+    # Key attributes: Reallocated_Sector_Ct (5), Current_Pending_Sector (197), UDMA_CRC_Error_Count (199)
+    raw=$("$smartctl" -A "$dev_path" 2>/dev/null)
+    realloc=$(echo "$raw" | grep -E '^\s*(5|005)\s' | awk '{print $NF}' || echo "N/A")
+    pending=$(echo "$raw" | grep -E '^\s*(197)\s' | awk '{print $NF}' || echo "N/A")
+    udma=$(echo "$raw" | grep -E '^\s*(199)\s' | awk '{print $NF}' || echo "N/A")
+
+    echo "  $health | Reallocated: $realloc | Pending: $pending | UDMA CRC: $udma"
 }
 
 main() {
@@ -239,6 +284,28 @@ main() {
                 fi
                 message="${message%$'\n'}"
                 notify_ec=0
+
+                # Per-disk breakdown
+                local disk_breakdown=""
+                if [[ "$ENABLE_PER_DISK_TRACKING" == "1" ]]; then
+                    local disk_ids
+                    disk_ids=$(extract_disk_ids "$sorted")
+                    if [[ -n "$disk_ids" ]]; then
+                        disk_breakdown=$'\n'"Disks with errors:"
+                        local dname dcount
+                        while IFS= read -r dname; do
+                            [[ -z "$dname" ]] && continue
+                            dcount=$(grep -c "$dname" "$sorted" 2>/dev/null || echo 0)
+                            disk_breakdown+=$'\n'"  $dname: $dcount error(s)"
+                            if [[ "$ENABLE_SMART_CORRELATION" == "1" ]]; then
+                                local smart_summary
+                                smart_summary=$(get_smart_health "$dname")
+                                disk_breakdown+=$'\n'"$smart_summary"
+                            fi
+                        done <<< "$disk_ids"
+                        detail+="$disk_breakdown"
+                    fi
+                fi
                 "$NOTIFY_SCRIPT" -e "Disk Error Alert" -s "Disk Storage Errors Detected" \
                     -d "$detail" -m "$message" -i "alert" || notify_ec=$?
                 if [[ $notify_ec -eq 0 ]]; then

@@ -33,8 +33,14 @@ SCRUB_DEVICE="/mnt/downloads"
 # Where to save scrub log output (default: /boot/logs/scrub.log if empty)
 LOG_FILE="/boot/logs/scrub.log"
 
+# 1 = send Unraid notifications on start/success/failure, 0 = log only
+ENABLE_NOTIFICATIONS="1"
+
 # Unraid notify script (dynamix plugin)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
+
+# 1 = resume existing scrub if one is already in progress (instead of erroring)
+RESUME_EXISTING="1"
 
 ###############################################################################
 
@@ -80,20 +86,40 @@ main() {
         mkdir -p "$log_dir" 2>/dev/null || { log_err "Cannot create log directory: $log_dir"; return 1; }
     fi
 
-    if [[ -x "$NOTIFY_SCRIPT" ]]; then
+    # Safety check for NOTIFY_SCRIPT path
+    local notify_ok=0
+    if [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
+        if [[ "$NOTIFY_SCRIPT" != *".."* && "$NOTIFY_SCRIPT" != "-"* ]]; then
+            notify_ok=1
+        fi
+    fi
+
+    # Check for existing scrub and optionally resume
+    local scrub_action="start"
+    if [[ "$RESUME_EXISTING" == "1" ]]; then
+        local scrub_status
+        scrub_status=$(btrfs scrub status "$SCRUB_DEVICE" 2>/dev/null)
+        if echo "$scrub_status" | grep -qi "running"; then
+            log "Scrub already in progress, cancelling and restarting..."
+            btrfs scrub cancel "$SCRUB_DEVICE" 2>/dev/null || true
+            sleep 2
+        fi
+    fi
+
+    if [[ $notify_ok -eq 1 ]]; then
         "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub started" -i "normal" -m "Scrubbing $SCRUB_DEVICE"
     else
-        log "Notify script not found, running without notifications"
+        [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && log "Notify script not found, running without notifications"
     fi
 
     if btrfs scrub start -B "$SCRUB_DEVICE" > "$log_dest" 2>&1; then
-        if [[ -x "$NOTIFY_SCRIPT" ]]; then
+        if [[ $notify_ok -eq 1 ]]; then
             "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub finished successfully" -i "normal" -m "Log: $log_dest"
         fi
         log "Scrub finished successfully. Log: $log_dest"
     else
         local scrub_exit=$?
-        if [[ -x "$NOTIFY_SCRIPT" ]]; then
+        if [[ $notify_ok -eq 1 ]]; then
             "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub failed or found errors" -i "alert" -m "Check log: $log_dest"
         fi
         log_err "Scrub failed (exit $scrub_exit). Check $log_dest"

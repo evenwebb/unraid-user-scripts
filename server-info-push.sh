@@ -48,6 +48,15 @@ APPDATA_MOUNT="/mnt/appdata"
 # Include UPS status if available (1 = yes, 0 = no)
 INCLUDE_UPS="1"
 
+# Section toggles — set to 0 to hide a section from the notification output
+SHOW_STORAGE="1"
+SHOW_TEMPS="1"
+SHOW_MEMORY="1"
+SHOW_UPTIME_LOAD="1"
+SHOW_VMS="1"
+SHOW_CONTAINERS="1"
+SHOW_UPS="1"
+
 # NUT UPS name for upsc (e.g. "ups@localhost"). Empty = auto-detect or use apcaccess
 NUT_UPS_NAME=""
 
@@ -203,17 +212,17 @@ main() {
     local uptime_str
     uptime_str=$(format_uptime "$uptime_secs")
 
-    # VMs (virsh/libvirt)
+    # VMs (virsh/libvirt) — only when section is enabled
     local vmslist="none"
-    if command -v virsh >/dev/null 2>&1; then
+    if [[ "$SHOW_VMS" == "1" ]] && command -v virsh >/dev/null 2>&1; then
         vmslist=$(virsh list --state-running --name 2>/dev/null | paste -sd ', ' - || echo "none")
         [[ -z "$vmslist" ]] && vmslist="none"
     fi
 
-    # Docker containers (only if Docker daemon is running)
+    # Docker containers — only when section is enabled
     local docsrunning=""
     local docker_running=0
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if [[ "$SHOW_CONTAINERS" == "1" ]] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         docker_running=1
         docsrunning=$(docker ps --format '{{.Names}}' 2>/dev/null | paste -sd ', ' - || echo "none")
         [[ -z "$docsrunning" ]] && docsrunning="none"
@@ -223,40 +232,56 @@ main() {
     local ups_line
     ups_line=$(get_ups_status)
 
-    # Build styled message
+    # Build styled message (sections controlled by SHOW_* config toggles)
     local msg
     msg="🖥️  Unraid Server Status
-━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━"
+
+    if [[ "$SHOW_STORAGE" == "1" ]]; then
+        msg="$msg
 
 📁  Storage
   Array:      $hdspacefree free
   Downloads:  $cachespacefree free
-  AppData:    $appdataspacefree free
+  AppData:    $appdataspacefree free"
+    fi
+
+    if [[ "$SHOW_TEMPS" == "1" ]]; then
+        msg="$msg
 
 🌡️  Temperatures
-  $temp
+  $temp"
+    fi
+
+    if [[ "$SHOW_MEMORY" == "1" ]]; then
+        msg="$msg
 
 💾  Memory
-$ram_line
+$ram_line"
+    fi
+
+    if [[ "$SHOW_UPTIME_LOAD" == "1" ]]; then
+        msg="$msg
 
 ⏱️  Uptime  |  Load
   $uptime_str  |  $load"
+    fi
 
-    if [[ -n "$ups_line" ]]; then
+    if [[ -n "$ups_line" && "$SHOW_UPS" == "1" ]]; then
         msg="$msg
 
 🔌  UPS
 $ups_line"
     fi
 
-    if [[ -n "$vmslist" && "$vmslist" != "none" ]]; then
+    if [[ -n "$vmslist" && "$vmslist" != "none" && "$SHOW_VMS" == "1" ]]; then
         msg="$msg
 
 🖴  VMs
   $vmslist"
     fi
 
-    if [[ $docker_running -eq 1 ]]; then
+    if [[ $docker_running -eq 1 && "$SHOW_CONTAINERS" == "1" ]]; then
         msg="$msg
 
 🐳  Containers

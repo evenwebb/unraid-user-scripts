@@ -56,10 +56,28 @@ RESTART_ONLY_IF_AUTOSTART=0
 CONNECT_TIMEOUT=15
 MAX_TIME=30
 
+# 1 = notify when Plex recovers after being down (requires state file)
+NOTIFY_ON_RECOVERY="1"
+
+# Maximum container restarts per calendar day (0 = unlimited)
+MAX_RESTARTS_PER_DAY="5"
+
+# State file for cross-run tracking (empty = default beside script)
+STATE_FILE=""
+
+# Default state file: same dir as this script
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="${_SCRIPT_DIR}/plex-status.state"
+unset _SCRIPT_DIR
+
 ###############################################################################
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     echo "Error: LOG_FILE path invalid." >&2
+    exit 1
+fi
+if [[ -n "$STATE_FILE" ]] && [[ "$STATE_FILE" == *".."* || "$STATE_FILE" == "-"* ]]; then
+    echo "Error: STATE_FILE path invalid." >&2
     exit 1
 fi
 
@@ -140,6 +158,31 @@ plex_port_from_url() {
     fi
 }
 
+# Read state file key=value pairs
+read_plex_state() {
+    local f="$1"
+    [[ ! -f "$f" || ! -r "$f" ]] && return 0
+    tr -d '\r' < "$f" 2>/dev/null || true
+}
+
+# Write key=value state to file (atomic via temp file)
+write_plex_state() {
+    local f="$1" dir state_tmp
+    dir=$(dirname "$f")
+    [[ ! -d "$dir" || ! -w "$dir" ]] && return 1
+    state_tmp="${f}.tmp.$$"
+    shift
+    printf '%s\n' "$@" > "$state_tmp" 2>/dev/null || { rm -f "$state_tmp" 2>/dev/null; return 1; }
+    mv -f "$state_tmp" "$f" 2>/dev/null || { rm -f "$state_tmp" 2>/dev/null || true; return 1; }
+}
+
+# Get a single key from state file, or default
+get_plex_state_key() {
+    local f="$1" key="$2" default="$3" val
+    val=$(read_plex_state "$f" | grep "^${key}=" | head -n1 | sed 's/^[^=]*=//')
+    [[ -z "$val" ]] && echo "$default" || echo "$val"
+}
+
 main() {
     if [[ -z "$PLEX_CONTAINER_NAME" ]]; then
         log_err "PLEX_CONTAINER_NAME is empty."
@@ -174,6 +217,16 @@ main() {
     http_code="$primary_code"
 
     if is_plex_http_ok "$http_code"; then
+        if [[ "$NOTIFY_ON_RECOVERY" == "1" ]]; then
+            local was_down
+            was_down=$(get_plex_state_key "$STATE_FILE" "was_down" "0")
+            if [[ "$was_down" == "1" ]]; then
+                log "Plex has recovered! Was unreachable on the previous check."
+                send_unraid_notify "Check Plex Status" "Plex container recovered" \
+                    "Plex web UI is responding again after being unreachable." "normal"
+                write_plex_state "$STATE_FILE" "was_down=0" "consecutive_restarts=0"
+            fi
+        fi
         log "Plex web UI responded (HTTP $http_code). No action needed."
         return 0
     fi
@@ -182,6 +235,16 @@ main() {
     if [[ "$PLEX_WEB_UI" != "$loopback_url" ]]; then
         http_code="$(curl_http_code "$loopback_url")"
         if is_plex_http_ok "$http_code"; then
+            if [[ "$NOTIFY_ON_RECOVERY" == "1" ]]; then
+                local was_down2
+                was_down2=$(get_plex_state_key "$STATE_FILE" "was_down" "0")
+                if [[ "$was_down2" == "1" ]]; then
+                    log "Plex has recovered (loopback). Was unreachable on the previous check."
+                    send_unraid_notify "Check Plex Status" "Plex container recovered" \
+                        "Plex web UI is responding again (loopback) after being unreachable." "normal"
+                    write_plex_state "$STATE_FILE" "was_down=0" "consecutive_restarts=0"
+                fi
+            fi
             log "Plex web UI responded via loopback $loopback_url (HTTP $http_code). No action needed."
             return 0
         fi
@@ -200,6 +263,16 @@ main() {
     inner_code="${inner_code//$'\n'/}"
 
     if is_plex_http_ok "$inner_code"; then
+        if [[ "$NOTIFY_ON_RECOVERY" == "1" ]]; then
+            local was_down3
+            was_down3=$(get_plex_state_key "$STATE_FILE" "was_down" "0")
+            if [[ "$was_down3" == "1" ]]; then
+                log "Plex has recovered (in-container check). Was unreachable on the previous check."
+                send_unraid_notify "Check Plex Status" "Plex container recovered" \
+                    "Plex web UI is responding again (in-container) after being unreachable." "normal"
+                write_plex_state "$STATE_FILE" "was_down=0" "consecutive_restarts=0"
+            fi
+        fi
         log "Plex web UI responded from inside the container (HTTP $inner_code). Host checks had failed (primary HTTP $primary_code); no restart."
         return 0
     fi
@@ -213,6 +286,30 @@ main() {
             log "Plex web UI is not accessible but container has restart policy '$policy'. Skipping restart (may be intentionally stopped)."
             return 0
         fi
+    fi
+
+    # --- Restart backoff: check daily limit ---
+    if [[ "$MAX_RESTARTS_PER_DAY" -gt 0 ]]; then
+        local today restarts_today last_date
+        today=$(date '+%Y-%m-%d')
+        last_date=$(get_plex_state_key "$STATE_FILE" "last_restart_date" "")
+        restarts_today=$(get_plex_state_key "$STATE_FILE" "restarts_today" "0")
+        if [[ "$last_date" != "$today" ]]; then
+            restarts_today=0
+        fi
+        if [[ "$restarts_today" -ge "$MAX_RESTARTS_PER_DAY" ]]; then
+            log_err "Daily restart limit reached ($MAX_RESTARTS_PER_DAY). Skipping restart."
+            send_unraid_notify "Check Plex Status" "Plex restart limit reached" \
+                "Plex web UI is unreachable but $MAX_RESTARTS_PER_DAY restarts already performed today. Manual intervention required." "alert"
+            write_plex_state "$STATE_FILE" "was_down=1"
+            return 1
+        fi
+        restarts_today=$((restarts_today + 1))
+    fi
+
+    # Record that Plex is down before restarting
+    if [[ "$NOTIFY_ON_RECOVERY" == "1" || "$MAX_RESTARTS_PER_DAY" -gt 0 ]]; then
+        write_plex_state "$STATE_FILE" "was_down=1" "last_restart_date=${today:-}" "restarts_today=${restarts_today:-0}"
     fi
 
     log "Plex web UI is not accessible. Restarting container..."
