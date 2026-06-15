@@ -38,13 +38,6 @@ NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 ###############################################################################
 
-if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
-    exit 1
-fi
-
-###############################################################################
-
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
     echo "$msg"
@@ -53,6 +46,12 @@ log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg" >&2
 }
+
+# Validate LOG_FILE after log functions are defined so we can use log_err
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    log_err "LOG_FILE path invalid."
+    exit 1
+fi
 
 main() {
     if ! command -v btrfs &>/dev/null; then
@@ -87,7 +86,7 @@ main() {
         log "Notify script not found, running without notifications"
     fi
 
-    if btrfs scrub start -rdB "$SCRUB_DEVICE" > "$log_dest" 2>&1; then
+    if btrfs scrub start -B "$SCRUB_DEVICE" > "$log_dest" 2>&1; then
         if [[ -x "$NOTIFY_SCRIPT" ]]; then
             "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub finished successfully" -i "normal" -m "Log: $log_dest"
         fi

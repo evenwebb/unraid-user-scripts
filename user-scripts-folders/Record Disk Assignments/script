@@ -44,7 +44,7 @@ log_err() {
 }
 
 flush_disk() {
-    [[ -z "$d_name" && -z "$d_id" && -z "$d_status" ]] && return 0
+    [[ -z "$d_name" && -z "$d_id" ]] && return 0
     echo "Disk: ${d_name:-}  Device: ${d_id:-}  Status: ${d_status:-}" >> "$OUTPUT_FILE"
 }
 

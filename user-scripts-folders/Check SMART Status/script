@@ -118,9 +118,9 @@ main() {
         output=$(smartctl -H "$disk" 2>/dev/null || true)
         ((checked++)) || true
 
-        if echo "$output" | grep -qi "SMART overall-health self-assessment test result: PASSED"; then
+        if echo "$output" | grep -qi "SMART.*PASSED"; then
             log "  $disk: PASSED"
-        elif echo "$output" | grep -qi "SMART overall-health self-assessment test result: FAILED"; then
+        elif echo "$output" | grep -qi "SMART.*FAILED"; then
             log "  $disk: FAILED"
             failed_disks+=("$disk")
         else

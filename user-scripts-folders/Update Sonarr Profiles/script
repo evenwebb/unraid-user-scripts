@@ -280,7 +280,7 @@ main() {
     local http_code
     http_code=$(echo "$series_response" | tail -n1)
     local series_json
-    series_json=$(echo "$series_response" | sed '$d')
+    series_json=$(printf '%s\n' "$series_response" | sed '$d')
 
     if [[ "$http_code" != "200" ]] || ! echo "$series_json" | jq -e . >/dev/null 2>&1; then
         log_err "Failed to fetch series from Sonarr (HTTP $http_code or invalid JSON)."

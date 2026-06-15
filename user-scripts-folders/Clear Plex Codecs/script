@@ -72,8 +72,27 @@ main() {
     fi
 
     log "Deleting all contents inside: $PLEX_CODECS_PATH"
-    rm -rf "$PLEX_CODECS_PATH"/* "$PLEX_CODECS_PATH"/.[!.]* "$PLEX_CODECS_PATH"/..?* 2>/dev/null || true
-    log "Deletion complete."
+    local found=0
+    shopt -s nullglob
+    local items=()
+    for g in "$PLEX_CODECS_PATH"/* "$PLEX_CODECS_PATH"/.[!.]* "$PLEX_CODECS_PATH"/..?*; do
+        items+=("$g")
+    done
+    shopt -u nullglob
+    found=${#items[@]}
+    if [[ $found -eq 0 ]]; then
+        log "No items found to delete in $PLEX_CODECS_PATH"
+    else
+        local fail=0
+        for item in "${items[@]}"; do
+            rm -rf "$item" 2>/dev/null || { log_err "Failed to delete: $item"; fail=1; }
+        done
+        if [[ $fail -eq 0 ]]; then
+            log "Deletion complete ($found item(s) removed)."
+        else
+            log_err "Deletion completed with errors; some items may not have been removed."
+        fi
+    fi
 }
 
 main "$@"

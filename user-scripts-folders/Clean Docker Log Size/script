@@ -44,7 +44,7 @@ if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; t
 fi
 if [[ -n "$LOG_FILE" ]]; then
     mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-    exec > >(tee -a "$LOG_FILE")
+    exec > >(tee -a "$LOG_FILE") 2>&1
 fi
 
 ###############################################################################

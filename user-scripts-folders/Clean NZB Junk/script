@@ -72,37 +72,9 @@ is_safe_path() {
     return 0
 }
 
-# Precomputed pattern lists (runtime, not config)
-JUNK_SUFFIXES=()
-JUNK_HAS_R_SPLITS="0"
-
-init_junk_patterns() {
-    JUNK_SUFFIXES=()
-    JUNK_HAS_R_SPLITS="0"
-
-    local p lower
-    for p in "${JUNK_EXTENSIONS[@]}"; do
-        # Normalize: strip leading '*', lowercase
-        p="${p#\*}"
-        lower="${p,,}"
-
-        # Special case: RAR split placeholders mean "any .r<digits>"
-        if [[ "$lower" == ".r[0-9]" || "$lower" == ".r[0-9][0-9]" ]]; then
-            JUNK_HAS_R_SPLITS="1"
-            continue
-        fi
-
-        # Skip empty entries
-        [[ -z "$lower" ]] && continue
-        JUNK_SUFFIXES+=("$lower")
-    done
-}
-
-# Delete junk files by extension
+# Delete junk files by extension (uses find for performance)
 delete_junk_files() {
     local dir="$1"
-    local count=0
-    local processed=0
 
     if [[ ! -d "$dir" ]]; then
         log "Skipping $dir (not found)"
@@ -111,47 +83,53 @@ delete_junk_files() {
 
     log "Scanning for junk files in: $dir"
 
-    # Get all files, then filter in bash (single find per directory)
-    while IFS= read -r -d '' file; do
-        local basename="${file##*/}"
-        local matched=0
-
-        ((processed++)) || true
-
-        # Check if file matches any junk pattern (case insensitive)
-        local basename_lower="${basename,,}"
-        if [[ "$JUNK_HAS_R_SPLITS" == "1" ]] && [[ "$basename_lower" =~ \.r[0-9]+$ ]]; then
-            matched=1
-        else
-            local suffix
-            for suffix in "${JUNK_SUFFIXES[@]}"; do
-                if [[ "$basename_lower" == *"$suffix" ]] || [[ "$basename_lower" == "$suffix" ]]; then
-                    matched=1
-                    break
-                fi
-            done
+    # Build find expression directly from JUNK_EXTENSIONS
+    local find_args=()
+    local added=0
+    local has_r_splits=0
+    local p lower
+    for p in "${JUNK_EXTENSIONS[@]}"; do
+        [[ -z "$p" ]] && continue
+        lower="${p,,}"
+        # RAR split patterns: handle via -regex for full coverage
+        if [[ "$lower" == ".r[0-9]" || "$lower" == ".r[0-9][0-9]" ]]; then
+            has_r_splits=1
+            continue
         fi
-
-        if [[ $matched -eq 1 ]]; then
-            if [[ "$DRY_RUN" != "1" ]]; then
-                rm -f "$file"
-            fi
-            ((count++)) || true
+        if [[ $added -gt 0 ]]; then
+            find_args+=(-o)
         fi
+        find_args+=(-iname "$p")
+        added=1
+    done
 
-        # Progress indicator every 100 files
-        if (( processed % 100 == 0 )); then
-            log "  Processed $processed files, found $count junk files so far..."
+    # Add RAR split pattern via regex (case-insensitive match on extension)
+    if [[ $has_r_splits -eq 1 ]]; then
+        if [[ $added -gt 0 ]]; then
+            find_args+=(-o)
         fi
-    done < <(find "$dir" -xdev -type f -print0 2>/dev/null || true)
+        find_args+=(-iregex '.*\.r[0-9]+')
+        added=1
+    fi
 
-    log "Scanned $processed files, found $count junk file(s) to delete"
+    if [[ $added -eq 0 ]]; then
+        log "No junk patterns configured."
+        return 0
+    fi
+
+    local count
+    if [[ "$DRY_RUN" == "1" ]]; then
+        count=$(find "$dir" -xdev -type f \( "${find_args[@]}" \) -print 2>/dev/null | wc -l)
+        log "Found $count junk file(s) (dry run)"
+    else
+        count=$(find "$dir" -xdev -type f \( "${find_args[@]}" \) -delete -print 2>/dev/null | wc -l)
+        log "Deleted $count junk file(s)"
+    fi
 }
 
 # Delete sample files (filename ends with "sample" or "sample[0-9]+" before extension)
 delete_sample_files() {
     local dir="$1"
-    local count=0
 
     if [[ ! -d "$dir" ]]; then
         return 0
@@ -159,27 +137,19 @@ delete_sample_files() {
 
     log "Scanning for sample files in: $dir"
 
-    while IFS= read -r -d '' file; do
-        local basename="${file##*/}"
-        local name_no_ext="${basename%.*}"
-        local name_lower="${name_no_ext,,}"
-
-        # Check if filename ends with "sample" or "sample" followed by digits
-        if [[ "$name_lower" =~ sample[0-9]*$ ]]; then
-            if [[ "$DRY_RUN" != "1" ]]; then
-                rm -f "$file"
-            fi
-            ((count++)) || true
-        fi
-    done < <(find "$dir" -xdev -type f -iname "*sample*" -print0 2>/dev/null || true)
-
-    log "Found $count sample file(s)"
+    local count
+    if [[ "$DRY_RUN" == "1" ]]; then
+        count=$(find "$dir" -xdev -type f -iname "*sample*" -print 2>/dev/null | wc -l)
+        log "Found $count sample file(s) (dry run)"
+    else
+        count=$(find "$dir" -xdev -type f -iname "*sample*" -delete -print 2>/dev/null | wc -l)
+        log "Deleted $count sample file(s)"
+    fi
 }
 
 # Delete sample directories
 delete_sample_dirs() {
     local dir="$1"
-    local count=0
 
     if [[ ! -d "$dir" ]]; then
         return 0
@@ -187,14 +157,18 @@ delete_sample_dirs() {
 
     log "Scanning for sample directories in: $dir"
 
-    while IFS= read -r -d '' sdir; do
-        if [[ "$DRY_RUN" != "1" ]]; then
-            rm -rf "$sdir"
+    local count
+    if [[ "$DRY_RUN" == "1" ]]; then
+        count=$(find "$dir" -xdev -type d -iname "sample" -print 2>/dev/null | wc -l)
+        log "Found $count sample director(ies) (dry run)"
+    else
+        # Count before deletion, then remove
+        count=$(find "$dir" -xdev -type d -iname "sample" -print 2>/dev/null | wc -l)
+        if [[ $count -gt 0 ]]; then
+            find "$dir" -xdev -type d -iname "sample" -exec rm -rf {} + 2>/dev/null || true
         fi
-        ((count++)) || true
-    done < <(find "$dir" -xdev -type d -iname "sample" -print0 2>/dev/null || true)
-
-    log "Found $count sample director(ies)"
+        log "Deleted $count sample director(ies)"
+    fi
 }
 
 # Delete empty directories (run multiple times until no more found)
@@ -250,8 +224,6 @@ main() {
         log_err "FOLDERS is empty. Add at least one directory to clean."
         return 1
     fi
-
-    init_junk_patterns
 
     for folder in "${FOLDERS[@]}"; do
         if ! is_safe_path "$folder"; then

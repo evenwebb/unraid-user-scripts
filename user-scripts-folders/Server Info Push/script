@@ -184,7 +184,7 @@ main() {
     # Temperatures
     local temp="N/A"
     if command -v sensors >/dev/null 2>&1; then
-        temp=$(sensors 2>/dev/null | grep -E '°[CF]' | head -n 3 | sed 's/^[[:space:]]*//' | paste -sd ', ' - || echo "N/A")
+        temp=$(timeout 5 sensors 2>/dev/null | grep -E '°[CF]' | head -n 3 | sed 's/^[[:space:]]*//' | paste -sd ', ' - || echo "N/A")
         [[ -z "$temp" ]] && temp="N/A"
     fi
 
