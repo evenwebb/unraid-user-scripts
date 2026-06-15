@@ -17,7 +17,9 @@
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - SHOW_KILLED_PROCESSES: 1 = extract and show which processes were killed
+#   - ENABLE_STATE_TRACKING: 1 = track OOM count in state file, only notify on increase
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

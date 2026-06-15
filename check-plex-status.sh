@@ -21,7 +21,9 @@
 #   - MAX_TIME: Max seconds for Plex web UI check request
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - NOTIFY_ON_RECOVERY: 1 = notify when Plex recovers after being down
+#   - MAX_RESTARTS_PER_DAY: Maximum container restarts per calendar day (0 = unlimited)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

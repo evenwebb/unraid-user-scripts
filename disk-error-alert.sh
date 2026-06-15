@@ -28,7 +28,9 @@
 #
 # Unraid notes: Syslog is in RAM by default (clears on reboot). Enable Settings >
 # Syslog Server (e.g. Mirror to flash) for persistent logs across reboots.
-#
+##   - ENABLE_PER_DISK_TRACKING: 1 = extract disk IDs (sdX, mdX) and track per-disk counts
+#   - ENABLE_SMART_CORRELATION: 1 = cross-reference disk errors with SMART data (requires smartctl)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

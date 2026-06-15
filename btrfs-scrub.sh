@@ -15,7 +15,9 @@
 #   - SCRUB_DEVICE: Path or device to scrub (e.g. /mnt/cache, /mnt/downloads)
 #   - LOG_FILE: Where to save scrub output; parent dir created if missing (default: /boot/logs/scrub.log)
 #   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#
+##   - ENABLE_NOTIFICATIONS: 1 = send Unraid notifications on start/success/failure, 0 = log only
+#   - RESUME_EXISTING: 1 = cancel and restart if a scrub is already in progress
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #
