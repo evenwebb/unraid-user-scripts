@@ -29,7 +29,6 @@
 #   - CLEAR_CACHE: 1 = clear cached ZIP/extraction before running, 0 = reuse cache
 #   - INSTALL_MISSING: 1 = install missing folders, 0 = only update existing
 #   - RESET_CONFIG: 1 = reset to upstream default config (no merge), 0 = merge/preserve local values
-#   - RESET_CONFIG_ON_TEXT_CHANGE: 1 = overwrite only scripts whose EDIT block layout/text changed upstream, 0 = preserve local values
 #
 # Notes:
 #   - This script expects source folders in: user-scripts-folders/
@@ -100,10 +99,19 @@ INSTALL_MISSING="0"
 # 0 = preserve local config values by merging (recommended default)
 RESET_CONFIG="0"
 
-# 1 = when upstream EDIT-block comments/order/keys change, reset that script's
-# config block to upstream defaults instead of preserving local values
-# 0 = always preserve local config values unless RESET_CONFIG=1
-RESET_CONFIG_ON_TEXT_CHANGE="0"
+# How to resolve conflicts when a config variable exists locally and upstream:
+# "keep-local"  — your local value wins (default, safest)
+# "use-upstream" — upstream default overwrites your local value when they differ
+CONFIG_CONFLICT_MODE="keep-local"
+
+# 1 = show a diff of config changes (new/removed/changed vars) during merge
+SHOW_CONFIG_DIFF="1"
+
+# Selective update: only update folders matching these names (empty = all)
+INCLUDE_FOLDERS=()
+
+# Selective update: skip these folder names (empty = none excluded)
+EXCLUDE_FOLDERS=()
 
 ###############################################################################
 
@@ -663,12 +671,6 @@ sync_one_folder() {
 
   validate_bash_script "$src_script" "source script $(basename "$src_folder")" || return 1
 
-  local force_reset_for_text_change=0
-  if [[ "$RESET_CONFIG" != "1" && "$RESET_CONFIG_ON_TEXT_CHANGE" == "1" && -f "$dest_script" ]] &&
-    config_block_text_changed "$dest_script" "$src_script"; then
-    force_reset_for_text_change=1
-  fi
-
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
       log "Skipping missing folder (not installed): $(basename "$dest_folder")"
@@ -687,7 +689,7 @@ sync_one_folder() {
   local merged
   merged="$(mktemp)"
   if [[ -f "$dest_script" ]]; then
-    if [[ "$RESET_CONFIG" == "1" || "$force_reset_for_text_change" == "1" ]]; then
+    if [[ "$RESET_CONFIG" == "1" ]]; then
       cp "$src_script" "$merged"
     else
       # If dest matches upstream (normalized), merge cannot change anything — skip
@@ -741,11 +743,6 @@ sync_one_folder() {
     return 2
   fi
 
-  if [[ "$force_reset_for_text_change" == "1" ]]; then
-    log "Updating folder: $(basename "$dest_folder") (${reasons[*]}; config reset due to upstream EDIT-block text change)"
-  else
-    log "Updating folder: $(basename "$dest_folder") (${reasons[*]})"
-  fi
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
     backup_file "$dest_script" "$(basename "$dest_folder")"
@@ -801,11 +798,15 @@ main() {
     log_err "RESET_CONFIG must be 0 or 1"
     return 1
   fi
-  if [[ "$RESET_CONFIG_ON_TEXT_CHANGE" != "0" && "$RESET_CONFIG_ON_TEXT_CHANGE" != "1" ]]; then
-    log_err "RESET_CONFIG_ON_TEXT_CHANGE must be 0 or 1"
+
+  if [[ "$CONFIG_CONFLICT_MODE" != "keep-local" && "$CONFIG_CONFLICT_MODE" != "use-upstream" ]]; then
+    log_err "CONFIG_CONFLICT_MODE must be 'keep-local' or 'use-upstream'"
     return 1
   fi
-
+  if [[ "$SHOW_CONFIG_DIFF" != "0" && "$SHOW_CONFIG_DIFF" != "1" ]]; then
+    log_err "SHOW_CONFIG_DIFF must be 0 or 1"
+    return 1
+  fi
   local src_folders
   # prepare_source_folders returns the source path on stdout. Harden against any
   # unexpected extra output by taking the last line only.
@@ -829,6 +830,19 @@ main() {
   while IFS= read -r src_folder; do
     folder_name="$(basename "$src_folder")"
     dest_folder="$DEST_DIR/$folder_name"
+
+      # Selective update filtering
+      if [[ ${#INCLUDE_FOLDERS[@]} -gt 0 ]]; then
+        local _found=0 _inc
+        for _inc in "${INCLUDE_FOLDERS[@]}"; do
+          [[ "$folder_name" == "$_inc" ]] && { _found=1; break; }
+        done
+        [[ $_found -eq 0 ]] && { skipped=$((skipped + 1)); continue; }
+      fi
+      local _exc
+      for _exc in "${EXCLUDE_FOLDERS[@]}"; do
+        [[ "$folder_name" == "$_exc" ]] && { skipped=$((skipped + 1)); continue 2; }
+      done
     sync_one_folder "$src_folder" "$dest_folder"
     case $? in
       0) updated=$((updated + 1)) ;;
