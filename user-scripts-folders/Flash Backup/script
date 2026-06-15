@@ -96,15 +96,16 @@ log_err() {
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'''
+'''* ]] && return 1
     return 0
 }
 
-send_notify() {
-    local event="$1" subject="$2" desc="$3" importance="${4:-normal}"
-    if [[ -n "$NOTIFY_SCRIPT" ]] && is_safe_path "$NOTIFY_SCRIPT" && [[ -x "$NOTIFY_SCRIPT" ]]; then
-        "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$desc" -i "$importance" 2>/dev/null || true
-    fi
+send_unraid_notify() {
+    local event="$1" subject="$2" description="$3" importance="${4:-normal}"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    is_safe_path "$NOTIFY_SCRIPT" || return 0
+    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
 }
 
 get_compression_flag() {
@@ -206,7 +207,7 @@ main() {
 
     if [[ $exit_code -ne 0 ]]; then
         log_err "Backup failed (tar exit code $exit_code)."
-        send_notify "Flash Backup" "Flash backup failed" \
+        send_unraid_notify "Flash Backup" "Flash backup failed" \
             "tar exited with code $exit_code after ${duration}s. Check $LOG_FILE for details." \
             "alert"
         return 1
@@ -236,7 +237,7 @@ main() {
         fi
         if [[ $? -ne 0 ]]; then
             log_err "Backup verification FAILED for $backup_path"
-            send_notify "Flash Backup" "Flash backup verification failed" \
+            send_unraid_notify "Flash Backup" "Flash backup verification failed" \
                 "Backup archive $backup_name failed integrity check. The backup may be corrupt." \
                 "alert"
             return 1
@@ -262,7 +263,7 @@ main() {
 
     local msg="Flash backup completed: ${backup_size_mb}MB in ${duration}s → ${backup_name}"
     log "$msg"
-    send_notify "Flash Backup" "Flash backup completed" \
+    send_unraid_notify "Flash Backup" "Flash backup completed" \
         "$msg. Stored in $BACKUP_DEST (keeping last $KEEP_COUNT backups)." \
         "normal"
 

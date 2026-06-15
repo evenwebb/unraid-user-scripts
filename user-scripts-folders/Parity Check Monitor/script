@@ -106,15 +106,16 @@ log_err() {
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'''
+'''* ]] && return 1
     return 0
 }
 
-send_notify() {
-    local event="$1" subject="$2" desc="$3" importance="${4:-normal}"
-    if [[ -n "$NOTIFY_SCRIPT" ]] && is_safe_path "$NOTIFY_SCRIPT" && [[ -x "$NOTIFY_SCRIPT" ]]; then
-        "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$desc" -i "$importance" 2>/dev/null || true
-    fi
+send_unraid_notify() {
+    local event="$1" subject="$2" description="$3" importance="${4:-normal}"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    is_safe_path "$NOTIFY_SCRIPT" || return 0
+    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
 }
 
 # Read a key from var.ini (simple ini parser: key="value")
@@ -191,13 +192,13 @@ main() {
                 if [[ "${md_resync_errors:-0}" -gt 0 ]]; then
                     errors_msg="Found ${md_resync_errors} sync error(s)."
                 fi
-                send_notify "Parity Check Complete" "Parity check finished" \
+                send_unraid_notify "Parity Check Complete" "Parity check finished" \
                     "The $kind has completed.${errors_msg:+ $errors_msg}" \
-                    "${errors_msg:+alert}" || send_notify "Parity Check Complete" "Parity check finished" \
+                    "${errors_msg:+alert}" || send_unraid_notify "Parity Check Complete" "Parity check finished" \
                     "The $kind has completed. No errors detected." "normal"
             fi
             if [[ "$NOTIFY_ON_ERRORS" == "1" ]] && [[ "${md_resync_errors:-0}" -gt 0 ]]; then
-                send_notify "Parity Check Errors" "Parity check found errors" \
+                send_unraid_notify "Parity Check Errors" "Parity check found errors" \
                     "${md_resync_errors} sync error(s) detected during the last parity check. Review the Unraid dashboard." \
                     "alert"
             fi
@@ -225,7 +226,7 @@ main() {
     if [[ "$last_uuid" == "none" || "$last_uuid" != "$check_uuid" ]]; then
         log "New $kind detected: ${current_pct}% complete (position ${current_pos} / ${total_size})."
         if [[ "$NOTIFY_ON_START" == "1" ]]; then
-            send_notify "Parity Check Start" "Parity check started" \
+            send_unraid_notify "Parity Check Start" "Parity check started" \
                 "A $kind has started. Current position: ${current_pct}%. Duration varies based on array size." \
                 "normal"
         fi
@@ -255,7 +256,7 @@ main() {
             [[ "$eta_secs" -gt 0 ]] && eta_str=", ETA: $(format_duration $eta_secs)"
 
             log "Progress milestone: ${current_pct}%${eta_str}."
-            send_notify "Parity Check Progress" "Parity check: ${current_pct}%" \
+            send_unraid_notify "Parity Check Progress" "Parity check: ${current_pct}%" \
                 "The $kind is ${current_pct}% complete${eta_str}. Errors so far: $errors." \
                 "normal"
         fi
