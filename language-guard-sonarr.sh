@@ -104,6 +104,23 @@ timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# Validate LOG_FILE path (reject path traversal)
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    echo "Error: LOG_FILE path invalid." >&2
+    exit 1
+fi
+
+log() {
+    local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $*"
+    echo "$msg"
+    [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
+}
+log_err() {
+    local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] ERROR: $*"
+    echo "$msg" >&2
+    [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
+}
+
 log_line() {
   local level="$1"
   shift

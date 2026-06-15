@@ -59,6 +59,14 @@ if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; t
     exit 1
 fi
 
+# Validate NOTIFY_SCRIPT path for safety
+if [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && [[ -n "$NOTIFY_SCRIPT" ]]; then
+    if [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT" == "-"* ]]; then
+        log_err "NOTIFY_SCRIPT path invalid."
+        exit 1
+    fi
+fi
+
 main() {
     if ! command -v btrfs &>/dev/null; then
         log_err "btrfs command not found. Install btrfs-progs."
