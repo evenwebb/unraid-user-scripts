@@ -17,7 +17,9 @@
 #   - DRY_RUN: 1 for dry-run (no deletions), 0 for production
 #
 # Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - MIN_AGE_MINUTES: Skip files modified less than N minutes ago (0 = no minimum)
+#   - EXCLUDE_PATTERNS: Glob patterns to exclude from deletion (e.g. "*.nfo")
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

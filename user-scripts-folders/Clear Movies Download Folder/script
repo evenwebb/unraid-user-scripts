@@ -17,7 +17,8 @@
 #   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - MIN_AGE_MINUTES: Skip files modified less than N minutes ago (0 = no minimum)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

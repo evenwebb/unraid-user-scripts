@@ -23,7 +23,9 @@
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
 # Note: Dangerous paths (/, /etc, /boot, etc.) are blocked. Overlapping paths
 #       are deduplicated (e.g. /mnt/user and /mnt/user/Media -> only /mnt/user).
-#
+##   - EXCLUDE_PATHS: Path globs to skip within PERM_PATHS (e.g. "*/Downloads/*")
+#   - PARALLEL_JOBS: Number of parallel jobs for xargs -P (0 = sequential chmod -R)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

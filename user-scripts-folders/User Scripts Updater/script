@@ -40,7 +40,11 @@
 #     for the matching key only; upstream default is kept for vars you never set.
 #   - If a script has no marker / no recognizable EDIT region, destination is overwritten
 #     entirely from upstream.
-#
+##   - CONFIG_CONFLICT_MODE: "keep-local" (default) or "use-upstream" for config merge conflicts
+#   - SHOW_CONFIG_DIFF: 1 = log added/removed config vars during merge, 0 = summary only
+#   - INCLUDE_FOLDERS: Only update folders matching these names (empty = all)
+#   - EXCLUDE_FOLDERS: Skip these folder names (empty = none excluded)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

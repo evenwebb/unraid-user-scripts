@@ -15,7 +15,9 @@
 #   - HEAD_COUNT: Number of lines to show (default 60)
 #
 # Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - PER_CONTAINER_BREAKDOWN: 1 = group log sizes by container name, 0 = raw file list
+#   - SHOW_TREND: 1 = show size deltas from previous run (requires TREND_FILE)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

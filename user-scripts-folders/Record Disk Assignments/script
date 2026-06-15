@@ -16,7 +16,8 @@
 #   - OUTPUT_FILE: Output path (default /boot/config/DISK_ASSIGNMENTS.txt)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - JSON_OUTPUT: 1 = also write JSON output file (OUTPUT_FILE.json)
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #

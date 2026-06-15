@@ -22,7 +22,14 @@
 #   - NUT_UPS_NAME: NUT plugin UPS name for upsc (e.g. "ups@localhost", default: auto-detect)
 #
 # Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-#
+##   - SHOW_STORAGE: 1 = show storage section, 0 = hide
+#   - SHOW_TEMPS: 1 = show temperatures section, 0 = hide
+#   - SHOW_MEMORY: 1 = show memory section, 0 = hide
+#   - SHOW_UPTIME_LOAD: 1 = show uptime/load section, 0 = hide
+#   - SHOW_VMS: 1 = show VMs section, 0 = hide
+#   - SHOW_CONTAINERS: 1 = show containers section, 0 = hide
+#   - SHOW_UPS: 1 = show UPS section, 0 = hide
+
 # Author: https://github.com/evenwebb
 # License: GPL-3.0
 #
