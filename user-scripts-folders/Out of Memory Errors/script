@@ -64,6 +64,11 @@ if [[ "$ENABLE_STATE_TRACKING" == "1" ]] && [[ -n "$STATE_FILE" ]]; then
     fi
 fi
 
+if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT" == "-"* ]]; then
+    echo "Error: NOTIFY_SCRIPT path invalid." >&2
+    exit 1
+fi
+
 ###############################################################################
 
 log() {
