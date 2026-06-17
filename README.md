@@ -26,12 +26,6 @@
 
 > [`user-scripts-updater.sh`](user-scripts-updater.sh) pulls GitHub updates **without overwriting your config**.
 
-| | |
-|---|---|
-| **Fetch** | Repo ZIP (no `git` on Unraid) |
-| **Default** | Installed scripts only (`INSTALL_MISSING=1` for new ones) |
-| **Safety** | Config merge, backups, `bash -n` before write |
-
 First run: `DRY_RUN=1` → review → `DRY_RUN=0` and schedule.
 
 ---
