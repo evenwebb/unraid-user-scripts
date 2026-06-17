@@ -103,7 +103,9 @@ timestamp() {
 }
 
 log() {
-  echo "[$(timestamp)] $*"
+  local msg="[$(timestamp)] $*"
+  echo "$msg"
+  echo "$msg" >&2
 }
 
 log_err() {
@@ -691,7 +693,7 @@ sync_one_folder() {
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
       log "Skipping (not installed): $(basename "$dest_folder")"
-      return 2
+      return 3
     fi
     if [[ "$DRY_RUN" == "1" ]]; then
       log "Would install: $(basename "$dest_folder")"
@@ -856,6 +858,7 @@ main() {
   local src_folder folder_name dest_folder
   local updated=0 skipped=0 fail=0 unchanged=0
   local -a src_folder_list=()
+  local -a updated_list=() unchanged_list=() skipped_list=() failed_list=()
   while IFS= read -r src_folder; do
     [[ -n "$src_folder" ]] && src_folder_list+=("$src_folder")
   done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
@@ -873,6 +876,7 @@ main() {
         done
         if [[ $_found -eq 0 ]]; then
           log "Skipped (not in INCLUDE_FOLDERS): $folder_name"
+          skipped_list+=("$folder_name")
           skipped=$((skipped + 1))
           continue
         fi
@@ -881,19 +885,66 @@ main() {
       for _exc in "${EXCLUDE_FOLDERS[@]}"; do
         if [[ "$folder_name" == "$_exc" ]]; then
           log "Skipped (in EXCLUDE_FOLDERS): $folder_name"
+          skipped_list+=("$folder_name")
           skipped=$((skipped + 1))
           continue 2
         fi
       done
     sync_one_folder "$src_folder" "$dest_folder"
     case $? in
-      0) updated=$((updated + 1)) ;;
-      2) unchanged=$((unchanged + 1)) ;;
-      *) fail=$((fail + 1)) ;;
+      0)
+        updated=$((updated + 1))
+        updated_list+=("$folder_name")
+        ;;
+      2)
+        unchanged=$((unchanged + 1))
+        unchanged_list+=("$folder_name")
+        ;;
+      3)
+        skipped=$((skipped + 1))
+        skipped_list+=("$folder_name")
+        ;;
+      *)
+        fail=$((fail + 1))
+        failed_list+=("$folder_name")
+        ;;
     esac
   done
 
-  log "Done. Updated: ${updated:-0}, Unchanged: ${unchanged:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
+  local action="Updated"
+  [[ "$DRY_RUN" == "1" ]] && action="Would update"
+  log "--- Sync report ---"
+  if [[ ${#updated_list[@]} -gt 0 ]]; then
+    log "${action} (${#updated_list[@]}):"
+    local _n
+    for _n in "${updated_list[@]}"; do
+      log "  ${_n}"
+    done
+  else
+    log "${action}: none"
+  fi
+  if [[ ${#unchanged_list[@]} -gt 0 ]]; then
+    log "Unchanged (${#unchanged_list[@]}):"
+    for _n in "${unchanged_list[@]}"; do
+      log "  ${_n}"
+    done
+  else
+    log "Unchanged: none"
+  fi
+  if [[ ${#skipped_list[@]} -gt 0 ]]; then
+    log "Skipped (${#skipped_list[@]}):"
+    for _n in "${skipped_list[@]}"; do
+      log "  ${_n}"
+    done
+  fi
+  if [[ ${#failed_list[@]} -gt 0 ]]; then
+    log "Failed (${#failed_list[@]}):"
+    for _n in "${failed_list[@]}"; do
+      log "  ${_n}"
+    done
+  fi
+
+  log "Done. ${action}: ${updated:-0}, Unchanged: ${unchanged:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
   if [[ "${fail:-0}" -gt 0 ]]; then
     return 1
   fi
