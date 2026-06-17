@@ -17,7 +17,7 @@
 #   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
 #   - DELETE_ONLY_IF_REPLACEABLE: 1 = skip unmonitored or unreplaceable content
 #   - LOG_FILE / STATE_FILE / LOCK_FILE
-#   - RATE_LIMIT_SECONDS / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
+#   - RATE_LIMIT_DELAY / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
 #   - SERIES_ID / SERIES_FILTER: optional targeting
 #   - CLEAR_BLACKLIST / BLACKLIST_DUMP / STATS_DUMP
 #   - FAST_DISCOVERY: 1 = faster Python discovery (recommended)
@@ -41,7 +41,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Sonarr
 SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
-SONARR_API_KEY=""       # Settings -> General -> API Key
+SONARR_API_KEY=""       # Settings → General → API Key
 
 # 1 = dry run (recommended to start), 0 = live run
 DRY_RUN="1"
@@ -52,13 +52,13 @@ DEBUG="0"
 # 1 = use ffprobe when Sonarr metadata is missing
 USE_FFPROBE_FALLBACK="0"
 
-# Persistent files
-LOG_FILE="$SCRIPT_DIR/sonarr-language-guard.log"
-STATE_FILE="$SCRIPT_DIR/sonarr-language-guard-state.json"
+# Persistent files (empty = default beside script)
+LOG_FILE=""
+STATE_FILE=""
 LOCK_FILE="/tmp/sonarr-language-guard.lock"
 
 # Throttles / safety limits
-RATE_LIMIT_SECONDS="1"
+RATE_LIMIT_DELAY="1"
 MAX_ACTIONS_PER_RUN="25"
 SEARCH_COOLDOWN_DAYS="7"
 
@@ -76,6 +76,12 @@ STATS_DUMP="0"
 
 # 1 = faster discovery pass (recommended), 0 = slower shell/jq path
 FAST_DISCOVERY="1"
+
+###############################################################################
+
+[[ -z "$LOG_FILE" ]] && LOG_FILE="$SCRIPT_DIR/sonarr-language-guard.log"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="$SCRIPT_DIR/sonarr-language-guard-state.json"
+[[ -n "${RATE_LIMIT_SECONDS:-}" ]] && RATE_LIMIT_DELAY="$RATE_LIMIT_SECONDS"
 
 ###############################################################################
 
@@ -1167,7 +1173,7 @@ process_invalid_file() {
   if delete_episode_file "$file_id"; then
     SEEN_FILE_ACTIONS="$(set_add_line "$SEEN_FILE_ACTIONS" "$file_id")"
     ACTION_COUNT=$((ACTION_COUNT + 1))
-    sleep "$RATE_LIMIT_SECONDS"
+    sleep "$RATE_LIMIT_DELAY"
     local search_ids=()
     for episode_id in "${episode_ids[@]}"; do
       if ! set_has_line "$SEEN_EPISODE_SEARCHES" "$episode_id"; then

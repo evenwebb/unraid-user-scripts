@@ -15,7 +15,7 @@
 #   - SEARCH_PATHS: directories to scan
 #   - MAX_DEPTH: find depth limit
 #   - DELETE_MACOS_METADATA / DELETE_WINDOWS_METADATA / INCLUDE_RESOURCE_FORKS
-#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - DRY_RUN: 1 = preview only (default), 0 = delete files
 #   - LOG_FILE: optional log file
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
@@ -41,9 +41,9 @@ SEARCH_PATHS=(
 # Maximum depth (0 = unlimited). Use a number to limit depth.
 MAX_DEPTH=9999
 
-# Enable/disable deletion of macOS and Windows metadata (true/false)
-DELETE_MACOS_METADATA="true"
-DELETE_WINDOWS_METADATA="true"
+# Enable/disable deletion of macOS and Windows metadata (1 or 0)
+DELETE_MACOS_METADATA="1"
+DELETE_WINDOWS_METADATA="1"
 
 # Delete ._* AppleDouble resource fork files (can be many files, set to 1 to enable)
 INCLUDE_RESOURCE_FORKS="0"
@@ -55,6 +55,16 @@ DRY_RUN="1"
 LOG_FILE=""
 
 ###############################################################################
+
+_normalize_bool_flag() {
+    case "$1" in
+        true|True|TRUE|1) echo "1" ;;
+        false|False|FALSE|0) echo "0" ;;
+        *) echo "$1" ;;
+    esac
+}
+DELETE_MACOS_METADATA=$(_normalize_bool_flag "$DELETE_MACOS_METADATA")
+DELETE_WINDOWS_METADATA=$(_normalize_bool_flag "$DELETE_WINDOWS_METADATA")
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     _ui_msg="Error: LOG_FILE path invalid."
@@ -81,14 +91,14 @@ build_file_find_args() {
     local -n args_ref=$1
     args_ref=(-type f "(")
     local need_or=0
-    if [[ "$DELETE_MACOS_METADATA" == "true" ]]; then
+    if [[ "$DELETE_MACOS_METADATA" == "1" ]]; then
         args_ref+=(-name ".DS_Store" -o -name "._.DS_Store" -o -name ".LSOverride" -o -name ".VolumeIcon.icns" -o -name ".com.apple.timemachine.donotpresent" -o -name ".apdisk")
         need_or=1
         if [[ "$INCLUDE_RESOURCE_FORKS" == "1" ]]; then
             args_ref+=(-o -name "._*")
         fi
     fi
-    if [[ "$DELETE_WINDOWS_METADATA" == "true" ]]; then
+    if [[ "$DELETE_WINDOWS_METADATA" == "1" ]]; then
         [[ $need_or -eq 0 ]] || args_ref+=(-o)
         args_ref+=(-name "Thumbs.db" -o -name "Thumbs.db:encryptable" -o -name "ehthumbs.db" -o -name "ehthumbs_vista.db" -o -name "desktop.ini")
     fi
@@ -113,17 +123,17 @@ main() {
     local total_matched=0
 
     # Validate configuration
-    if [[ "$DELETE_MACOS_METADATA" != "true" && "$DELETE_MACOS_METADATA" != "false" ]]; then
-        log_err "DELETE_MACOS_METADATA must be 'true' or 'false'"
+    if [[ "$DELETE_MACOS_METADATA" != "0" && "$DELETE_MACOS_METADATA" != "1" ]]; then
+        log_err "DELETE_MACOS_METADATA must be 0 or 1"
         return 1
     fi
-    if [[ "$DELETE_WINDOWS_METADATA" != "true" && "$DELETE_WINDOWS_METADATA" != "false" ]]; then
-        log_err "DELETE_WINDOWS_METADATA must be 'true' or 'false'"
+    if [[ "$DELETE_WINDOWS_METADATA" != "0" && "$DELETE_WINDOWS_METADATA" != "1" ]]; then
+        log_err "DELETE_WINDOWS_METADATA must be 0 or 1"
         return 1
     fi
 
-    if [[ "$DELETE_MACOS_METADATA" == "false" && "$DELETE_WINDOWS_METADATA" == "false" ]]; then
-        log "Both DELETE_MACOS_METADATA and DELETE_WINDOWS_METADATA are false. Nothing to delete."
+    if [[ "$DELETE_MACOS_METADATA" == "0" && "$DELETE_WINDOWS_METADATA" == "0" ]]; then
+        log "Both DELETE_MACOS_METADATA and DELETE_WINDOWS_METADATA are 0. Nothing to delete."
         return 0
     fi
     if [[ "$DRY_RUN" != "0" && "$DRY_RUN" != "1" ]]; then
@@ -137,8 +147,8 @@ main() {
     fi
 
     local os_types=""
-    [[ "$DELETE_MACOS_METADATA" == "true" ]] && os_types="macOS"
-    [[ "$DELETE_WINDOWS_METADATA" == "true" ]] && os_types="${os_types:+$os_types and }Windows"
+    [[ "$DELETE_MACOS_METADATA" == "1" ]] && os_types="macOS"
+    [[ "$DELETE_WINDOWS_METADATA" == "1" ]] && os_types="${os_types:+$os_types and }Windows"
     [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no files or directories will be deleted"
     log "Searching for and deleting ${os_types} metadata files..."
 
@@ -158,7 +168,7 @@ main() {
         local file_find_args=()
         local dir_find_args=()
 
-        if [[ "$DELETE_MACOS_METADATA" == "true" || "$DELETE_WINDOWS_METADATA" == "true" ]]; then
+        if [[ "$DELETE_MACOS_METADATA" == "1" || "$DELETE_WINDOWS_METADATA" == "1" ]]; then
             build_file_find_args file_find_args
             while IFS= read -r -d '' file; do
                 local basename="${file##*/}"
@@ -173,7 +183,7 @@ main() {
             done < <(find "$base" -maxdepth "$MAX_DEPTH" "${file_find_args[@]}" -print0 2>/dev/null || true)
         fi
 
-        if [[ "$DELETE_MACOS_METADATA" == "true" ]]; then
+        if [[ "$DELETE_MACOS_METADATA" == "1" ]]; then
             build_dir_find_args dir_find_args
             while IFS= read -r -d '' dir; do
                 ((matched++))

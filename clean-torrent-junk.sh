@@ -9,14 +9,14 @@
 # Usage:
 #   ./clean-torrent-junk.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = delete files
+#   DRY_RUN: 1 = preview only (default), 0 = delete files
 #
 # Configuration (edit script variables below):
 #   - FOLDERS: directories to clean
 #   - JUNK_EXTENSIONS: filename patterns to remove
 #   - MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)
 #   - EXCLUDE_PATTERNS: globs to keep
-#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - DRY_RUN: 1 = preview only (default), 0 = delete files
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -32,7 +32,7 @@ set -o pipefail
 ###############################################################################
  
 # 1 = dry-run (no deletions), 0 = production
-DRY_RUN="0"
+DRY_RUN="1"
 
 # Skip files modified less than N minutes ago (0 = no minimum age)
 MIN_AGE_MINUTES="5"

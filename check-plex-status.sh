@@ -13,7 +13,7 @@
 # Configuration (edit script variables below):
 #   - PLEX_CONTAINER_NAME: Docker container name
 #   - PLEX_WEB_UI: URL for health check
-#   - NOTIFY_SCRIPT: dynamix notify path (empty = no notify)
+#   - NOTIFY_SCRIPT: dynamix notify path (default set; empty = disabled)
 #   - LOG_FILE: optional log file (empty = stdout only)
 #   - RESTART_ONLY_IF_AUTOSTART: 1 = skip restart if policy is no
 #   - NOTIFY_ON_RECOVERY: 1 = notify when Plex recovers
@@ -41,20 +41,18 @@ PLEX_CONTAINER_NAME="plex"
 # when Plex only binds certain interfaces (bridge/custom Docker networking).
 PLEX_WEB_UI="http://127.0.0.1:32400/web/index.html"
 
-# Optional: Unraid dynamix notify (empty = no notification when container is restarted)
+# Unraid dynamix notify (default path; empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
-# Optional: only restart if container has restart policy "always" or "unless-stopped"
-# When 1: skips restart if policy is "no" (container may be intentionally stopped)
-# When 0: always restart when UI is unreachable (default)
-RESTART_ONLY_IF_AUTOSTART=0
+# 0 = always restart when UI is unreachable (default); 1 = skip if restart policy is "no"
+RESTART_ONLY_IF_AUTOSTART="0"
 
 # Timeout in seconds for web UI check
-CONNECT_TIMEOUT=15
-MAX_TIME=30
+CONNECT_TIMEOUT="15"
+MAX_TIME="30"
 
 # 1 = notify when Plex recovers after being down (requires state file)
 NOTIFY_ON_RECOVERY="1"

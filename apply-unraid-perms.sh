@@ -10,7 +10,7 @@
 # Usage:
 #   ./apply-unraid-perms.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = apply changes
+#   DRY_RUN: 1 = preview only (default), 0 = apply changes
 #
 # Configuration (edit script variables below):
 #   - PERM_PATHS: directories to process
@@ -18,7 +18,7 @@
 #   - CHMOD_FLAGS: chmod flags (Docker-safe defaults)
 #   - EXCLUDE_PATHS: globs to skip inside PERM_PATHS
 #   - PARALLEL_JOBS: parallel xargs jobs (0 = sequential)
-#   - DRY_RUN: 1 = preview only, 0 = apply changes
+#   - DRY_RUN: 1 = preview only (default), 0 = apply changes
 #
 # Requires: root (run with sudo)
 #
@@ -49,7 +49,7 @@ OWNER_GROUP="nobody:users"
 CHMOD_FLAGS="u-x,go-rwx,go+u,ugo+X"
 
 # Behaviour
-DRY_RUN="0"
+DRY_RUN="1"
 
 # Paths to skip within PERM_PATHS (e.g. "*/Downloads/*" or "*/system/docker/*")
 # Glob patterns are matched against full file paths via find -path

@@ -11,14 +11,14 @@
 #   ./clean-download-junk.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
 #   PROFILE: nzb, torrent, all, or custom
-#   DRY_RUN: 1 = preview only, 0 = delete files
+#   DRY_RUN: 1 = preview only (default), 0 = delete files
 #
 # Configuration (edit script variables below):
 #   - PROFILE: nzb | torrent | all | custom
 #   - FOLDERS / JUNK_EXTENSIONS: used when PROFILE=custom (or override profile defaults)
 #   - EXTRA_FOLDERS / EXTRA_JUNK_EXTENSIONS: append to any profile
 #   - MIN_AGE_MINUTES, EXCLUDE_PATTERNS, DELETE_SAMPLES, DELETE_EMPTY_DIRS
-#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - DRY_RUN: 1 = preview only (default), 0 = delete files
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -41,7 +41,7 @@ set -o pipefail
 PROFILE="all"
 
 # 1 = dry-run (no deletions), 0 = production
-DRY_RUN="0"
+DRY_RUN="1"
 
 # Skip files modified less than N minutes ago (0 = no minimum age)
 MIN_AGE_MINUTES="5"
