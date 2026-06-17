@@ -4,8 +4,7 @@
 # Remove download junk files and empty folders (NZB, torrent, or both).
 #
 # Description:
-#   Consolidates clean-nzb-junk.sh and clean-torrent-junk.sh. Choose a profile
-#   for preset paths and junk patterns, or use custom with your own FOLDERS list.
+#   Choose a profile for preset paths and junk patterns, or use custom with your own FOLDERS list.
 #
 # Usage:
 #   ./clean-download-junk.sh

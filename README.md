@@ -11,7 +11,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat&logo=gnu&logoColor=white)](LICENSE)
 [![Shell: Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
-[![Scripts](https://img.shields.io/badge/Scripts-28-F26F21?style=flat&logo=linuxcontainers&logoColor=white)](https://github.com/evenwebb/unraid-user-scripts/tree/main)
+[![Scripts](https://img.shields.io/badge/Scripts-26-F26F21?style=flat&logo=linuxcontainers&logoColor=white)](https://github.com/evenwebb/unraid-user-scripts/tree/main)
 [![Unraid](https://img.shields.io/badge/Unraid-User%20Scripts-F26F21?style=flat&logo=unraid&logoColor=white)](https://unraid.net/community/apps)
 
 [Install](#-installation) · [Scripts](#-scripts) · [Updater](#-user-scripts-updater) · [Contributing](#-contributing)
@@ -73,8 +73,6 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | Script | Description |
 |:-------|:------------|
 | **clean-download-junk.sh** | Remove NZB/torrent junk; profiles: `nzb`, `torrent`, `all`, `custom` |
-| **clean-nzb-junk.sh** | Legacy; use **clean-download-junk.sh** (`PROFILE=nzb`) |
-| **clean-torrent-junk.sh** | Legacy; use **clean-download-junk.sh** (`PROFILE=torrent`) |
 | **clear-movies-download-folder.sh** | Empty movies download folder (optional age filter) |
 | **clear-torrent-download-folder.sh** | Empty torrent download folder (optional age filter) |
 | **clear-tv-shows-download-folder.sh** | Empty TV download folder (optional age filter) |

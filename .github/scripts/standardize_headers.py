@@ -111,7 +111,6 @@ HEADERS: dict[str, str] = {
         "clean-download-junk.sh",
         "Remove download junk files and empty folders (NZB, torrent, or both).",
         [
-            "Consolidates clean-nzb-junk.sh and clean-torrent-junk.sh.",
             "Use PROFILE for preset paths and patterns, or custom with your own lists.",
         ],
         [
@@ -125,32 +124,6 @@ HEADERS: dict[str, str] = {
             "FOLDERS / JUNK_EXTENSIONS: override profile defaults",
             "EXTRA_FOLDERS / EXTRA_JUNK_EXTENSIONS: append to profile",
             "MIN_AGE_MINUTES, EXCLUDE_PATTERNS, DELETE_SAMPLES, DELETE_EMPTY_DIRS",
-            "DRY_RUN: 1 = preview only, 0 = delete files",
-        ],
-    ),
-    "clean-nzb-junk.sh": hdr(
-        "clean-nzb-junk.sh",
-        "Remove NZB download junk files and empty folders.",
-        ["Deletes common leftover files (nfo, par2, samples, archives) under FOLDERS."],
-        ["./clean-nzb-junk.sh", "Edit variables in EDIT FOR YOUR SETUP below.", "DRY_RUN: 1 = preview only, 0 = delete files"],
-        [
-            "FOLDERS: directories to clean",
-            "JUNK_EXTENSIONS: filename patterns to remove",
-            "MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)",
-            "EXCLUDE_PATTERNS: globs to keep",
-            "DRY_RUN: 1 = preview only, 0 = delete files",
-        ],
-    ),
-    "clean-torrent-junk.sh": hdr(
-        "clean-torrent-junk.sh",
-        "Remove torrent download junk files and empty folders.",
-        ["Same behaviour as clean-nzb-junk.sh for torrent download paths."],
-        ["./clean-torrent-junk.sh", "Edit variables in EDIT FOR YOUR SETUP below.", "DRY_RUN: 1 = preview only, 0 = delete files"],
-        [
-            "FOLDERS: directories to clean",
-            "JUNK_EXTENSIONS: filename patterns to remove",
-            "MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)",
-            "EXCLUDE_PATTERNS: globs to keep",
             "DRY_RUN: 1 = preview only, 0 = delete files",
         ],
     ),
