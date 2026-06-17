@@ -105,7 +105,6 @@ timestamp() {
 log() {
   local msg="[$(timestamp)] $*"
   echo "$msg"
-  echo "$msg" >&2
 }
 
 log_err() {
@@ -146,7 +145,11 @@ require_cmd() {
 # Compare text files as User Scripts would see them: ignore CR (CRLF on flash),
 # and normalize missing final newlines so merge output matches on-disk copies.
 _normalize_for_compare() {
-  tr -d '\r' < "$1" | awk '{ print $0 }'
+  local clean
+  clean="$(mktemp)"
+  tr -d '\r' < "$1" > "$clean"
+  awk '{ print $0 }' "$clean"
+  rm -f "$clean"
 }
 
 files_equal() {
@@ -164,24 +167,27 @@ upstream_heads_and_tails_match() {
   local dest_script="$1"
   local src_script="$2"
   local s_src e_src s_dest e_dest
-  local hf1 hf2 tf1 tf2 rc=0
+  local hf1 hf2 tf1 tf2 clean_dest clean_src rc=0
   read -r s_src e_src < <(get_config_range "$src_script") || return 1
   read -r s_dest e_dest < <(get_config_range "$dest_script") || return 1
   [[ "$s_src" == "$s_dest" && "$e_src" == "$e_dest" ]] || return 1
 
-  # Write slices to real files so cmp never SIGPIPEs head/tail mid-write (avoids
-  # "head: write error: Broken pipe" and flaky comparisons).
+  # Normalize to temp files first so head/tail never SIGPIPE a streaming tr.
   hf1="$(mktemp)"
   hf2="$(mktemp)"
   tf1="$(mktemp)"
   tf2="$(mktemp)"
-  tr -d '\r' < "$dest_script" | head -n $((s_src - 1)) > "$hf1"
-  tr -d '\r' < "$src_script" | head -n $((s_src - 1)) > "$hf2"
-  tr -d '\r' < "$dest_script" | tail -n +$((e_src + 1)) > "$tf1"
-  tr -d '\r' < "$src_script" | tail -n +$((e_src + 1)) > "$tf2"
+  clean_dest="$(mktemp)"
+  clean_src="$(mktemp)"
+  tr -d '\r' < "$dest_script" > "$clean_dest"
+  tr -d '\r' < "$src_script" > "$clean_src"
+  head -n $((s_src - 1)) "$clean_dest" > "$hf1"
+  head -n $((s_src - 1)) "$clean_src" > "$hf2"
+  tail -n +$((e_src + 1)) "$clean_dest" > "$tf1"
+  tail -n +$((e_src + 1)) "$clean_src" > "$tf2"
 
   files_equal "$hf1" "$hf2" && files_equal "$tf1" "$tf2" || rc=1
-  rm -f "$hf1" "$hf2" "$tf1" "$tf2"
+  rm -f "$hf1" "$hf2" "$tf1" "$tf2" "$clean_dest" "$clean_src"
   return "$rc"
 }
 
@@ -412,7 +418,11 @@ extract_config_block() {
   if [[ -z "${start:-}" || -z "${end:-}" ]]; then
     return 1
   fi
-  tr -d '\r' < "$file" | sed -n "${start},${end}p"
+  local clean
+  clean="$(mktemp)"
+  tr -d '\r' < "$file" > "$clean"
+  sed -n "${start},${end}p" "$clean"
+  rm -f "$clean"
 }
 
 line_is_assignment() {
