@@ -1,0 +1,75 @@
+name: Sync User Scripts Folders
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '*.sh'
+      - 'README.md'
+      - '.github/scripts/**'
+      - '.github/workflows/sync-user-scripts-folders.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-user-scripts-folders
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Generate and commit folders
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Bash syntax check (bash -n)
+        run: bash .github/scripts/bash-n-check.sh
+
+      - name: Generate User Scripts folders
+        run: python3 .github/scripts/generate_folders.py
+
+      - name: Verify folder copies match root scripts
+        run: python3 .github/scripts/verify_folder_sync.py
+
+      - name: Commit and push changes
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain user-scripts-folders/)" ]]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add user-scripts-folders/
+
+          if git diff --staged --quiet; then
+            echo "No staged changes after git add."
+            exit 0
+          fi
+
+          git diff --staged --stat
+          git commit -m "$(cat <<'EOF'
+Auto-sync User Scripts plugin folders
+
+Generated from root *.sh by .github/scripts/generate_folders.py
+EOF
+)"
+          git push origin HEAD:main || {
+            echo "Push failed; pulling and retrying..."
+            git pull --rebase origin main
+            git push origin HEAD:main
+          }

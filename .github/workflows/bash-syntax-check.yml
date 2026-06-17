@@ -1,0 +1,53 @@
+name: Bash Syntax Check
+
+on:
+  pull_request:
+    paths:
+      - '*.sh'
+      - 'user-scripts-folders/**'
+      - '.github/scripts/**'
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '*.sh'
+      - 'user-scripts-folders/**'
+      - '.github/scripts/**'
+      - '.github/workflows/bash-syntax-check.yml'
+
+concurrency:
+  group: bash-syntax-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Bash syntax check (bash -n)
+        run: bash .github/scripts/bash-n-check.sh
+
+      - name: Regenerate User Scripts folders (check only)
+        run: python3 .github/scripts/generate_folders.py
+
+      - name: Verify folder copies match root scripts
+        run: python3 .github/scripts/verify_folder_sync.py
+
+      - name: Note folder drift (auto-synced on merge to main)
+        if: github.event_name == 'pull_request'
+        run: |
+          if ! git diff --quiet user-scripts-folders/; then
+            echo "::notice title=User Scripts folders::user-scripts-folders/ differs from generated output. It will be updated automatically when this merges to main."
+            git diff --stat user-scripts-folders/
+          fi
