@@ -1,1 +1,1 @@
-Applies Unraid-style "new permissions" (nobody:users, Docker-safe) to configured paths with optional parallel processing.
+Apply Unraid permissions (nobody:users); requires root

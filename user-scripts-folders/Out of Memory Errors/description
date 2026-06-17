@@ -1,1 +1,1 @@
-Checks syslog for "Out of memory" events and sends an Unraid dynamix alert when new OOMs are detected. Shows which processes were killed and tracks state across runs.
+Alert on new OOM syslog events

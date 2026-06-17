@@ -9,7 +9,7 @@
 # Usage:
 #   ./queue-sync-nzbget.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = apply changes
+#   DRY_RUN: 1 = preview only (default), 0 = apply changes
 #
 # Configuration (edit script variables below):
 #   - RADARR_URL / RADARR_API_KEY / SKIP_RADARR
@@ -49,7 +49,7 @@ NZBGET_USER="nzbget"    # ControlUsername
 NZBGET_PASS=""         # ControlPassword
 
 # --- Behaviour ---
-DRY_RUN="0"                # 1 = log only, no removals or searches
+DRY_RUN="1"                # 1 = log only, no removals or searches (default)
 TRIGGER_SEARCH="1"         # 0 = remove+blocklist only; 1 = remove, blocklist, and force search
 CLEAR_NZBGET_FAILED="0"    # 1 = clear failed downloads from NZBGet history
 BLOCKLIST_ENABLED="1"      # 1 = blocklist release when removing from *arr queue; 0 = remove only
@@ -59,7 +59,7 @@ SAFE_EMPTY_QUEUE="0"       # 1 = skip *arr removals when NZBGet queue is empty
 LOCK_FILE=""               # Prevent concurrent runs (e.g. /tmp/queue-sync-nzbget.lock)
 MAX_REMOVALS_PER_RUN="0"   # Cap removals per run; 0 = no limit
 RATE_LIMIT_DELAY="0"       # Seconds between API calls when removing; 0 = no delay
-RETRY_COUNT="0"            # Retries for failed curl requests
+RETRY_COUNT="2"            # Retries for failed curl requests
 CLEAR_NZBGET_AGE_DAYS="0"  # Only clear failed history older than N days; 0 = all
 LOG_FILE=""               # If set, append logs here (e.g. /boot/config/queue-sync.log)
 CURL_TIMEOUT="30"

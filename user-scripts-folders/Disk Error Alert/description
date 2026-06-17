@@ -1,1 +1,1 @@
-Checks syslog for md/storage errors; counts **unique** matching lines (de-duped across patterns) and sends an Unraid dynamix alert **only when that count increases**. Extracts per-disk IDs and optionally cross-references with SMART data.
+Alert on new md/storage syslog errors

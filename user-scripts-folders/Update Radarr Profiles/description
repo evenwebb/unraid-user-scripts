@@ -1,1 +1,1 @@
-Updates Radarr quality profiles by year window: premium years (current year back `PREMIUM_YEARS_BACK`) → one profile, older years → older movies profile.
+Assign quality profiles by movie year

@@ -16,7 +16,7 @@
 #   - RADARR_URL / RADARR_API_KEY: Radarr connection
 #   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
 #   - LOG_FILE / STATE_FILE / LOCK_FILE: logging, state, and lock
-#   - RATE_LIMIT_SECONDS / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
+#   - RATE_LIMIT_DELAY / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
 #   - MOVIE_ID / MOVIE_FILTER: optional targeting
 #   - CLEAR_BLACKLIST / BLACKLIST_DUMP / STATS_DUMP: maintenance modes
 #   - FAST_DISCOVERY: 1 = faster Python discovery (recommended)
@@ -40,7 +40,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Radarr
 RADARR_URL=""           # e.g. http://192.168.1.10:7878 (no trailing slash)
-RADARR_API_KEY=""       # Settings -> General -> API Key
+RADARR_API_KEY=""       # Settings → General → API Key
 
 # 1 = dry run (recommended to start), 0 = live run
 DRY_RUN="1"
@@ -51,13 +51,13 @@ DEBUG="0"
 # 1 = use ffprobe when Radarr metadata is missing
 USE_FFPROBE_FALLBACK="0"
 
-# Persistent files
-LOG_FILE="$SCRIPT_DIR/radarr-language-guard.log"
-STATE_FILE="$SCRIPT_DIR/radarr-language-guard-state.json"
+# Persistent files (empty = default beside script)
+LOG_FILE=""
+STATE_FILE=""
 LOCK_FILE="/tmp/radarr-language-guard.lock"
 
 # Throttles / safety limits
-RATE_LIMIT_SECONDS="1"
+RATE_LIMIT_DELAY="1"
 MAX_ACTIONS_PER_RUN="25"
 SEARCH_COOLDOWN_DAYS="7"
 
@@ -72,6 +72,12 @@ STATS_DUMP="0"
 
 # 1 = faster discovery pass (recommended), 0 = slower shell/jq path
 FAST_DISCOVERY="1"
+
+###############################################################################
+
+[[ -z "$LOG_FILE" ]] && LOG_FILE="$SCRIPT_DIR/radarr-language-guard.log"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="$SCRIPT_DIR/radarr-language-guard-state.json"
+[[ -n "${RATE_LIMIT_SECONDS:-}" ]] && RATE_LIMIT_DELAY="$RATE_LIMIT_SECONDS"
 
 ###############################################################################
 
@@ -1023,7 +1029,7 @@ process_invalid_file() {
     SEEN_FILE_ACTIONS="$(set_add_line "$SEEN_FILE_ACTIONS" "$file_id")"
     ACTION_COUNT=$((ACTION_COUNT + 1))
     state_mark_movie_action "$movie_id" "deleted" "$release_key"
-    sleep "$RATE_LIMIT_SECONDS"
+    sleep "$RATE_LIMIT_DELAY"
 
     if ! set_has_line "$SEEN_MOVIE_SEARCHES" "$movie_id"; then
       if search_movie "$movie_id"; then

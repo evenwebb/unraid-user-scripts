@@ -1,1 +1,1 @@
-Lists Docker container log file sizes (largest first) with optional per-container breakdown and trend tracking across runs.
+List largest container logs

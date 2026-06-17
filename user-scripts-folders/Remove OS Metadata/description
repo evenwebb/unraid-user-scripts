@@ -1,1 +1,1 @@
-Removes macOS metadata files (`.DS_Store`, `._*`, `.Spotlight-V100`, `.Trashes`, etc.) and Windows metadata files (`Thumbs.db`, `desktop.ini`, etc.).
+Remove `.DS_Store`, `Thumbs.db`, and similar metadata

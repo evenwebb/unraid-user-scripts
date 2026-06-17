@@ -1,1 +1,1 @@
-Truncates Docker container log files to free space in docker.img. Shows before/after sizes.
+Truncate container logs (free docker.img space)

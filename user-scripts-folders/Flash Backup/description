@@ -1,1 +1,1 @@
-🆕 Creates compressed backups of the Unraid boot flash drive to array storage. Includes integrity verification, automatic rotation, and configurable exclusions. Critical for disaster recovery.
+Flash drive backups to array (rotation + verify)

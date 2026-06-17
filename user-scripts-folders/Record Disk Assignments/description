@@ -1,1 +1,1 @@
-Writes current Unraid disk assignments to `/boot/config/DISK_ASSIGNMENTS.txt` and optionally a machine-readable JSON file.
+Export disk assignments to flash

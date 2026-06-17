@@ -9,12 +9,12 @@
 # Usage:
 #   ./update-sonarr-profiles.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = update Sonarr
+#   DRY_RUN: 1 = preview only (default), 0 = update Sonarr
 #
 # Configuration (edit script variables below):
 #   - SONARR_URL / SONARR_API_KEY
 #   - AIRING_PROFILE_ID / UPCOMING_PROFILE_ID / ENDED_PROFILE_ID / CONTINUING_NO_UPCOMING_PROFILE_ID
-#   - PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING: "true" or "false"
+#   - PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING: 1 or 0
 #   - AIRING_DAYS / UPCOMING_DAYS
 #   - DRY_RUN / MONITORED_ONLY / TRIGGER_SEARCH / MAX_UPDATES_PER_RUN
 #   - CURL_TIMEOUT / RATE_LIMIT_DELAY / RETRY_COUNT / SONARR_VERIFY_SSL
@@ -48,10 +48,10 @@ ENDED_PROFILE_ID="2"
 CONTINUING_NO_UPCOMING_PROFILE_ID="2"
 
 # Enable/disable processing of each category (true/false)
-PROCESS_AIRING="true"
-PROCESS_UPCOMING="true"
-PROCESS_ENDED="true"
-PROCESS_CONTINUING_NO_UPCOMING="true"
+PROCESS_AIRING="1"
+PROCESS_UPCOMING="1"
+PROCESS_ENDED="1"
+PROCESS_CONTINUING_NO_UPCOMING="1"
 
 # Days threshold: nextAiring within AIRING_DAYS = "currently airing"
 AIRING_DAYS="30"
@@ -59,7 +59,7 @@ AIRING_DAYS="30"
 UPCOMING_DAYS="90"
 
 # 1 = dry run (no API changes), 0 = live
-DRY_RUN="0"
+DRY_RUN="1"
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
@@ -92,6 +92,18 @@ TRIGGER_SEARCH="0"
 RETRY_COUNT="2"
 
 ###############################################################################
+
+_normalize_bool_flag() {
+    case "$1" in
+        true|True|TRUE|1) echo "1" ;;
+        false|False|FALSE|0) echo "0" ;;
+        *) echo "$1" ;;
+    esac
+}
+PROCESS_AIRING=$(_normalize_bool_flag "$PROCESS_AIRING")
+PROCESS_UPCOMING=$(_normalize_bool_flag "$PROCESS_UPCOMING")
+PROCESS_ENDED=$(_normalize_bool_flag "$PROCESS_ENDED")
+PROCESS_CONTINUING_NO_UPCOMING=$(_normalize_bool_flag "$PROCESS_CONTINUING_NO_UPCOMING")
 
 # Validate LOG_FILE path
 if [[ -n "$LOG_FILE" ]]; then
@@ -304,8 +316,8 @@ main() {
         "PROCESS_ENDED:$PROCESS_ENDED" "PROCESS_CONTINUING_NO_UPCOMING:$PROCESS_CONTINUING_NO_UPCOMING")
     for v in "${process_vars[@]}"; do
         local name="${v%%:*}" val="${v#*:}"
-        if [[ "$val" != "true" && "$val" != "false" ]]; then
-            log_err "$name must be 'true' or 'false'"
+        if [[ "$val" != "0" && "$val" != "1" ]]; then
+            log_err "$name must be 0 or 1"
             return 1
         fi
     done
@@ -327,8 +339,8 @@ main() {
         return 1
     fi
 
-    if [[ "$PROCESS_AIRING" == "false" && "$PROCESS_UPCOMING" == "false" && "$PROCESS_ENDED" == "false" && "$PROCESS_CONTINUING_NO_UPCOMING" == "false" ]]; then
-        log "All PROCESS_* are false. Nothing to process."
+    if [[ "$PROCESS_AIRING" == "0" && "$PROCESS_UPCOMING" == "0" && "$PROCESS_ENDED" == "0" && "$PROCESS_CONTINUING_NO_UPCOMING" == "0" ]]; then
+        log "All PROCESS_* are 0. Nothing to process."
         return 0
     fi
 
@@ -338,10 +350,10 @@ main() {
     local upcoming_cutoff=$((now_epoch + UPCOMING_DAYS * 86400))
 
     local processing=""
-    [[ "$PROCESS_AIRING" == "true" ]] && processing="${processing:+$processing, }airing"
-    [[ "$PROCESS_UPCOMING" == "true" ]] && processing="${processing:+$processing, }upcoming"
-    [[ "$PROCESS_ENDED" == "true" ]] && processing="${processing:+$processing, }ended"
-    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" ]] && processing="${processing:+$processing, }continuing-no-upcoming"
+    [[ "$PROCESS_AIRING" == "1" ]] && processing="${processing:+$processing, }airing"
+    [[ "$PROCESS_UPCOMING" == "1" ]] && processing="${processing:+$processing, }upcoming"
+    [[ "$PROCESS_ENDED" == "1" ]] && processing="${processing:+$processing, }ended"
+    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "1" ]] && processing="${processing:+$processing, }continuing-no-upcoming"
     log "Sonarr Quality Profile Updater - processing: $processing"
 
     local series_json
@@ -358,7 +370,7 @@ main() {
 
         local target_prof="" category=""
         if [[ "$status" == "ended" ]]; then
-            [[ "$PROCESS_ENDED" == "true" && "$cur_prof" != "$ENDED_PROFILE_ID" ]] && target_prof="$ENDED_PROFILE_ID" && category="ended"
+            [[ "$PROCESS_ENDED" == "1" && "$cur_prof" != "$ENDED_PROFILE_ID" ]] && target_prof="$ENDED_PROFILE_ID" && category="ended"
         elif [[ -n "$next_airing" && "$next_airing" != "null" ]]; then
             local next_epoch
             # Parse ISO date: 2025-03-15T00:00:00Z or 2025-03-15T00:00:00.000Z
@@ -367,19 +379,19 @@ main() {
             if [[ "$next_epoch" -gt 0 ]]; then
                 # nextAiring in past = between seasons, treat as continuing
                 if [[ "$next_epoch" -lt "$now_epoch" ]]; then
-                    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
+                    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "1" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
                 elif [[ "$next_epoch" -le "$airing_cutoff" ]]; then
-                    [[ "$PROCESS_AIRING" == "true" && "$cur_prof" != "$AIRING_PROFILE_ID" ]] && target_prof="$AIRING_PROFILE_ID" && category="airing"
+                    [[ "$PROCESS_AIRING" == "1" && "$cur_prof" != "$AIRING_PROFILE_ID" ]] && target_prof="$AIRING_PROFILE_ID" && category="airing"
                 elif [[ "$next_epoch" -le "$upcoming_cutoff" ]]; then
-                    [[ "$PROCESS_UPCOMING" == "true" && "$cur_prof" != "$UPCOMING_PROFILE_ID" ]] && target_prof="$UPCOMING_PROFILE_ID" && category="upcoming"
+                    [[ "$PROCESS_UPCOMING" == "1" && "$cur_prof" != "$UPCOMING_PROFILE_ID" ]] && target_prof="$UPCOMING_PROFILE_ID" && category="upcoming"
                 else
-                    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
+                    [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "1" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
                 fi
             else
-                [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
+                [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "1" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
             fi
         else
-            [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "true" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
+            [[ "$PROCESS_CONTINUING_NO_UPCOMING" == "1" && "$cur_prof" != "$CONTINUING_NO_UPCOMING_PROFILE_ID" ]] && target_prof="$CONTINUING_NO_UPCOMING_PROFILE_ID" && category="continuing"
         fi
 
         if [[ -n "$target_prof" ]]; then

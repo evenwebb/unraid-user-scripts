@@ -1,1 +1,1 @@
-Checks SMART health status of disks and sends an Unraid dynamix alert if any fail. Schedule (e.g. daily).
+SMART health alert; requires root

@@ -9,7 +9,7 @@
 # Usage:
 #   ./update-radarr-profiles.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = update Radarr
+#   DRY_RUN: 1 = preview only (default), 0 = update Radarr
 #
 # Configuration (edit script variables below):
 #   - RADARR_URL / RADARR_API_KEY
@@ -42,11 +42,11 @@ CURRENT_YEAR_PROFILE_ID="9"   # Profile for current year movies
 OLDER_MOVIES_PROFILE_ID="2"   # Profile for previous year and older movies
 
 # 1 = dry run (no API changes), 0 = live
-DRY_RUN="0"
+DRY_RUN="1"
 
-# Enable/disable processing of current and previous year (true/false)
-PROCESS_CURRENT_YEAR="true"
-PROCESS_PREVIOUS_YEAR="true"
+# Enable/disable processing of current and previous year (1 or 0)
+PROCESS_CURRENT_YEAR="1"
+PROCESS_PREVIOUS_YEAR="1"
 
 # Premium years window:
 # 0 = only current year is premium
@@ -89,6 +89,16 @@ TRIGGER_SEARCH="0"
 RETRY_COUNT="2"
 
 ###############################################################################
+
+_normalize_bool_flag() {
+    case "$1" in
+        true|True|TRUE|1) echo "1" ;;
+        false|False|FALSE|0) echo "0" ;;
+        *) echo "$1" ;;
+    esac
+}
+PROCESS_CURRENT_YEAR=$(_normalize_bool_flag "$PROCESS_CURRENT_YEAR")
+PROCESS_PREVIOUS_YEAR=$(_normalize_bool_flag "$PROCESS_PREVIOUS_YEAR")
 
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
@@ -320,17 +330,17 @@ main() {
     fi
 
     # Validate configuration
-    if [[ "$PROCESS_CURRENT_YEAR" != "true" && "$PROCESS_CURRENT_YEAR" != "false" ]]; then
-        log_err "PROCESS_CURRENT_YEAR must be 'true' or 'false'"
+    if [[ "$PROCESS_CURRENT_YEAR" != "0" && "$PROCESS_CURRENT_YEAR" != "1" ]]; then
+        log_err "PROCESS_CURRENT_YEAR must be 0 or 1"
         return 1
     fi
-    if [[ "$PROCESS_PREVIOUS_YEAR" != "true" && "$PROCESS_PREVIOUS_YEAR" != "false" ]]; then
-        log_err "PROCESS_PREVIOUS_YEAR must be 'true' or 'false'"
+    if [[ "$PROCESS_PREVIOUS_YEAR" != "0" && "$PROCESS_PREVIOUS_YEAR" != "1" ]]; then
+        log_err "PROCESS_PREVIOUS_YEAR must be 0 or 1"
         return 1
     fi
 
-    if [[ "$PROCESS_CURRENT_YEAR" == "false" && "$PROCESS_PREVIOUS_YEAR" == "false" ]]; then
-        log "Both PROCESS_CURRENT_YEAR and PROCESS_PREVIOUS_YEAR are false. Nothing to process."
+    if [[ "$PROCESS_CURRENT_YEAR" == "0" && "$PROCESS_PREVIOUS_YEAR" == "0" ]]; then
+        log "Both PROCESS_CURRENT_YEAR and PROCESS_PREVIOUS_YEAR are 0. Nothing to process."
         return 0
     fi
 
@@ -347,7 +357,7 @@ main() {
 
     # Build jq filter (add monitored filter if MONITORED_ONLY=1)
     local MOVIES
-    if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$PROCESS_PREVIOUS_YEAR" == "true" ]]; then
+    if [[ "$PROCESS_CURRENT_YEAR" == "1" && "$PROCESS_PREVIOUS_YEAR" == "1" ]]; then
         MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
@@ -360,12 +370,12 @@ main() {
                     and (if $mononly == 1 then .monitored == true else true end)
                   )
                ]')
-    elif [[ "$PROCESS_CURRENT_YEAR" == "true" ]]; then
+    elif [[ "$PROCESS_CURRENT_YEAR" == "1" ]]; then
         MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
                '[.[] | select((.year|tonumber) >= $minyear and .qualityProfileId != $curprof and (if $mononly == 1 then .monitored == true else true end))]')
-    elif [[ "$PROCESS_PREVIOUS_YEAR" == "true" ]]; then
+    elif [[ "$PROCESS_PREVIOUS_YEAR" == "1" ]]; then
         MOVIES=$(echo "$movie_json" | jq --argjson minyear "$PREMIUM_MIN_YEAR" \
                --argjson curprof "$CURRENT_YEAR_PROFILE_ID" \
                --argjson mononly "$MONITORED_ONLY" \
@@ -400,7 +410,7 @@ main() {
     local search_ids=()
     local TMP_FILE
     TMP_FILE=$(mktemp) || { log_err "Failed to create temp file"; return 1; }
-    trap 'rm -f "$TMP_FILE"' EXIT
+    trap "rm -f '${TMP_FILE}'" EXIT
     echo "$MOVIES" | jq -c '.[]' > "$TMP_FILE"
 
     while IFS=$'\t' read -r MOVIE_ID MOVIE_TITLE MOVIE_YEAR PROFILE_ID; do
@@ -429,7 +439,7 @@ main() {
             fi
         fi
 
-        if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$MOVIE_YEAR" -ge "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
+        if [[ "$PROCESS_CURRENT_YEAR" == "1" && "$MOVIE_YEAR" -ge "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
                 FULL_MOVIE=$(_radarr_http_get "/api/v3/movie/$MOVIE_ID" "loading details for '$MOVIE_TITLE'") || { ERRORS=$((ERRORS + 1)); continue; }
@@ -447,7 +457,7 @@ main() {
             [[ "$RATE_LIMIT_DELAY" -gt 0 ]] && sleep "$RATE_LIMIT_DELAY"
         fi
 
-        if [[ "$PROCESS_PREVIOUS_YEAR" == "true" && "$MOVIE_YEAR" -lt "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -eq "$CURRENT_YEAR_PROFILE_ID" ]]; then
+        if [[ "$PROCESS_PREVIOUS_YEAR" == "1" && "$MOVIE_YEAR" -lt "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -eq "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
                 FULL_MOVIE=$(_radarr_http_get "/api/v3/movie/$MOVIE_ID" "loading details for '$MOVIE_TITLE'") || { ERRORS=$((ERRORS + 1)); continue; }
@@ -466,6 +476,7 @@ main() {
     done < <(jq -r '[.id, (.title // ""), (.year // 0), (.qualityProfileId // 0)] | @tsv' "$TMP_FILE")
 
     rm -f "$TMP_FILE"
+    trap - EXIT
 
     # Trigger search for updated movies
     if [[ "$DRY_RUN" == "0" && "$TRIGGER_SEARCH" == "1" && ${#search_ids[@]} -gt 0 ]]; then

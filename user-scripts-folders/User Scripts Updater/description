@@ -1,1 +1,1 @@
-Updates Unraid User Scripts plugin folders from a GitHub ZIP download (no git required) while preserving your edited config variables across updates.
+Update plugin folders from GitHub (see [Updater](#-user-scripts-updater))

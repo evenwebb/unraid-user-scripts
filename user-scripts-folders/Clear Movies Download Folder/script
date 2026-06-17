@@ -9,12 +9,12 @@
 # Usage:
 #   ./clear-movies-download-folder.sh
 #   Edit variables in EDIT FOR YOUR SETUP below.
-#   DRY_RUN: 1 = preview only, 0 = delete files
+#   DRY_RUN: 1 = preview only (default), 0 = delete files
 #
 # Configuration (edit script variables below):
 #   - DIR_PATH: folder to clear
 #   - MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)
-#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - DRY_RUN: 1 = preview only (default), 0 = delete files
 #   - NOTIFY_SCRIPT: optional completion notify
 #   - LOG_FILE: optional log file
 #
@@ -35,12 +35,12 @@ set -o pipefail
 DIR_PATH="/mnt/user/downloads/complete/movies"
 
 # 1 = preview only, 0 = delete contents
-DRY_RUN="0"
+DRY_RUN="1"
 
 # Skip items modified less than N minutes ago (0 = no minimum age)
 MIN_AGE_MINUTES="5"
 
-# Optional: Unraid dynamix notify (empty = skip notification after clear)
+# Unraid dynamix notify (default path; empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)

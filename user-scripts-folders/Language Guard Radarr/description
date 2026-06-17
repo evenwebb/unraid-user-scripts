@@ -1,1 +1,1 @@
-Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.
+Audit movie audio languages; remediate via blocklist + re-search
