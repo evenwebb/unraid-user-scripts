@@ -17,11 +17,11 @@
 #   - INCLUDE_UPS / NUT_UPS_NAME
 #   - SHOW_STORAGE / SHOW_TEMPS / SHOW_MEMORY / SHOW_UPTIME_LOAD / SHOW_VMS / SHOW_CONTAINERS / SHOW_UPS
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -62,7 +62,9 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
 
 # Validate path for safety (reject .., - prefix, newlines — same idea as disk-error-alert / dynamix paths)
@@ -78,16 +80,20 @@ pushnotice() {
     if [[ "$PUSH_NOTIFICATIONS" == "1" ]]; then
         [[ -z "$NOTIFY_SCRIPT" ]] && echo "$msg" && return 0
         if ! is_safe_path "$NOTIFY_SCRIPT"; then
-            log "Warning: NOTIFY_SCRIPT path invalid."
+            log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
             echo "$msg"
-            return 0
+            return 1
         fi
         if [[ ! -x "$NOTIFY_SCRIPT" ]]; then
-            log "Warning: NOTIFY_SCRIPT not executable."
+            log_err "NOTIFY_SCRIPT is not executable. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
             echo "$msg"
-            return 0
+            return 1
         fi
-        "$NOTIFY_SCRIPT" -e "Server Info Push" -s "Unraid status" -d "$msg" -i "normal" 2>/dev/null || true
+        if ! "$NOTIFY_SCRIPT" -e "Server Info Push" -s "Unraid status" -d "$msg" -i "normal"; then
+            log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+            echo "$msg"
+            return 1
+        fi
     else
         echo "$msg"
     fi

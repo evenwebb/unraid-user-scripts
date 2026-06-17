@@ -18,11 +18,11 @@
 #   - NOTIFY_SCRIPT: optional completion notify
 #   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -49,7 +49,9 @@ LOG_FILE=""
 ###############################################################################
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 if [[ -n "$LOG_FILE" ]]; then
@@ -63,7 +65,9 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
 
 is_safe_notify_path() {
@@ -76,8 +80,14 @@ is_safe_notify_path() {
 send_unraid_notify() {
     local event="$1" subject="$2" description="$3"
     [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
-    is_safe_notify_path "$NOTIFY_SCRIPT" || return 0
-    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal" 2>/dev/null || true
+    if ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
+        return 1
+    fi
+    if ! "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal"; then
+        log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+        return 1
+    fi
 }
 
 # Reject paths that are too dangerous (root, /mnt, too shallow, .. or - prefix)

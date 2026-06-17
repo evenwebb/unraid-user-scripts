@@ -16,11 +16,11 @@
 #   - PER_CONTAINER_BREAKDOWN: 1 = group by container name
 #   - SHOW_TREND / TREND_FILE: optional size trend tracking
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -55,7 +55,9 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
 
 # Map container ID to container name via docker inspect

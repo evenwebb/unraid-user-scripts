@@ -18,11 +18,11 @@
 #   - DRY_RUN: 1 = preview only, 0 = delete files
 #   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -57,7 +57,9 @@ LOG_FILE=""
 ###############################################################################
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 
@@ -70,6 +72,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }

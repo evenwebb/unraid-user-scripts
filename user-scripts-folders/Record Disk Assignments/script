@@ -15,11 +15,11 @@
 #   - OUTPUT_FILE: text output path
 #   - JSON_OUTPUT: 1 = also write .json
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -43,7 +43,9 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
 
 flush_disk() {
@@ -61,11 +63,14 @@ main() {
         return 1
     fi
     if [[ ! -r "$DISKS_INI" ]]; then
-        log_err "Cannot read $DISKS_INI"
+        log_err "Cannot read $DISKS_INI — is Unraid running? Check DISKS_INI in this script."
         return 1
     fi
 
-    mkdir -p "$(dirname "$OUTPUT_FILE")" 2>/dev/null || true
+    if ! mkdir -p "$(dirname "$OUTPUT_FILE")" 2>/dev/null; then
+        log_err "Cannot create output directory: $(dirname "$OUTPUT_FILE")"
+        return 1
+    fi
     echo "Disk Assignments as of $(date -R)" > "$OUTPUT_FILE" || { log_err "Cannot write to $OUTPUT_FILE"; return 1; }
 
     d_name=""

@@ -18,11 +18,11 @@
 #   - ENABLE_STATE_TRACKING: 1 = persist last-seen count
 #   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -50,7 +50,9 @@ STATE_FILE=""
 LOG_FILE=""
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 
@@ -61,13 +63,17 @@ unset _SCRIPT_DIR
 
 if [[ "$ENABLE_STATE_TRACKING" == "1" ]] && [[ -n "$STATE_FILE" ]]; then
     if [[ "$STATE_FILE" == *".."* || "$STATE_FILE" == "-"* ]]; then
-        echo "Error: STATE_FILE path invalid." >&2
+        _ui_msg="Error: STATE_FILE path invalid."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
         exit 1
     fi
 fi
 
 if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT" == "-"* ]]; then
-    echo "Error: NOTIFY_SCRIPT path invalid." >&2
+    _ui_msg="Error: NOTIFY_SCRIPT path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 
@@ -80,6 +86,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
@@ -149,9 +156,11 @@ main() {
             if [[ -x "$NOTIFY_SCRIPT" ]]; then
                 local desc="OOM error found in syslog ($oom_count occurrence(s))."
                 [[ -n "$process_info" ]] && desc+=$'\n'"$process_info"
-                "$NOTIFY_SCRIPT" -e "OOM Checker" -s "Checked for OOM in syslog" -d "$desc" -i "alert" || true
+                if ! "$NOTIFY_SCRIPT" -e "OOM Checker" -s "Checked for OOM in syslog" -d "$desc" -i "alert"; then
+                    log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+                fi
             else
-                log "Warning: NOTIFY_SCRIPT not executable, alert not sent."
+                log_err "NOTIFY_SCRIPT is not executable — alert was not sent. Check NOTIFY_SCRIPT in this script."
             fi
             if [[ "$ENABLE_STATE_TRACKING" == "1" ]]; then
                 write_oom_state "$STATE_FILE" "$oom_count" || true

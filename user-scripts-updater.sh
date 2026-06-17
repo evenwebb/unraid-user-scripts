@@ -20,17 +20,19 @@
 #   - INCLUDE_FOLDERS / EXCLUDE_FOLDERS
 #   - DOWNLOAD_CONNECT_TIMEOUT / DOWNLOAD_MAX_TIME
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
 
 if [[ -z "${BASH_VERSINFO:-}" ]] || [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]] || { [[ "${BASH_VERSINFO[0]:-0}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]:-0}" -lt 3 ]]; }; then
-  echo "Error: This script requires Bash 4.3+ (declare -n is used). Current bash: ${BASH_VERSION:-unknown}" >&2
+  _ui_msg="Error: This script requires Bash 4.3+ (declare -n is used). Current bash: ${BASH_VERSION:-unknown}"
+  echo "$_ui_msg"
+  echo "$_ui_msg" >&2
   exit 1
 fi
 
@@ -105,12 +107,30 @@ log() {
 }
 
 log_err() {
-  echo "[$(timestamp)] ERROR: $*" >&2
+  local msg="[$(timestamp)] ERROR: $*"
+  echo "$msg"
+  echo "$msg" >&2
 }
 
 log_stderr() {
   # Use this for messages inside functions that return data via stdout.
   echo "[$(timestamp)] $*" >&2
+}
+
+_friendly_curl_err() {
+  local msg="$1"
+  msg="${msg#curl: }"
+  if [[ "$msg" == *"Could not resolve host"* ]]; then
+    echo "The server name could not be found — check ZIP_URL in this script."
+  elif [[ "$msg" == *"Connection refused"* ]] || [[ "$msg" == *"Failed to connect"* ]]; then
+    echo "Could not connect — check ZIP_URL and your network."
+  elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
+    echo "The download timed out — increase DOWNLOAD_MAX_TIME in this script or check your network."
+  elif [[ "$msg" == *"404"* ]]; then
+    echo "The file was not found at that URL — check ZIP_URL in this script."
+  else
+    echo "$msg"
+  fi
 }
 
 require_cmd() {
@@ -166,18 +186,27 @@ upstream_heads_and_tails_match() {
 download_file() {
   local url="$1"
   local out="$2"
+  local curl_err
 
   if command -v curl >/dev/null 2>&1; then
-    # -R: set local mtime from remote Last-Modified (enables effective -z later)
-    curl -fsSL -R --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" -m "$DOWNLOAD_MAX_TIME" "$url" -o "$out"
-    return $?
+    curl_err=$(mktemp) || { log_err "Could not create temp file for download."; return 1; }
+    if curl -fsSL -R --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" -m "$DOWNLOAD_MAX_TIME" "$url" -o "$out" 2>"$curl_err"; then
+      rm -f "$curl_err"
+      return 0
+    fi
+    log_err "Could not download from ${url}. $(_friendly_curl_err "$(tr '\n' ' ' <"$curl_err")") Check ZIP_URL in this script."
+    rm -f "$curl_err"
+    return 1
   fi
   if command -v wget >/dev/null 2>&1; then
-    wget -qO "$out" "$url"
-    return $?
+    if wget -qO "$out" "$url"; then
+      return 0
+    fi
+    log_err "Could not download from ${url} using wget. Check ZIP_URL and network."
+    return 1
   fi
 
-  log_err "Need curl or wget to download: $url"
+  log_err "Need curl or wget to download updates. Check ZIP_URL in this script: $url"
   return 1
 }
 
@@ -210,7 +239,13 @@ download_file_if_modified() {
       return 0
     fi
     rm -f "$out.tmp" 2>/dev/null || true
-    log_err "Download failed (HTTP $http): $url"
+    if [[ "$http" == "401" || "$http" == "403" ]]; then
+      log_err "Download was rejected (HTTP $http). Check ZIP_URL in this script."
+    elif [[ "$http" == "404" ]]; then
+      log_err "Download URL not found (HTTP 404). Check ZIP_URL in this script: $url"
+    else
+      log_err "Download failed (HTTP ${http:-unknown}). Check ZIP_URL and network: $url"
+    fi
     return 1
   fi
 
@@ -241,27 +276,26 @@ clear_cache_if_requested() {
 
 prepare_source_folders() {
   # Echoes the source folder path to stdout.
+  if [[ "$SOURCE_MODE" != "zip" && "$SOURCE_MODE" != "local" ]]; then
+    log_err "SOURCE_MODE must be 'zip' or 'local' (you entered: ${SOURCE_MODE}). Edit the settings at the top of this script."
+    return 1
+  fi
   if [[ "$SOURCE_MODE" == "local" ]]; then
     if [[ -z "$REPO_DIR" || ! -d "$REPO_DIR" ]]; then
-      log_err "REPO_DIR not found: $REPO_DIR"
+      log_err "REPO_DIR not found: $REPO_DIR. Check REPO_DIR in this script."
       return 1
     fi
     local src_folders="$REPO_DIR/user-scripts-folders"
     if [[ ! -d "$src_folders" ]]; then
-      log_err "Source folders not found: $src_folders"
+      log_err "Source folders not found: $src_folders. Check REPO_DIR in this script."
       return 1
     fi
     echo "$src_folders"
     return 0
   fi
 
-  if [[ "$SOURCE_MODE" != "zip" ]]; then
-    log_err "SOURCE_MODE must be 'zip' or 'local'"
-    return 1
-  fi
-
   if [[ -z "$ZIP_URL" ]]; then
-    log_err "ZIP_URL is empty"
+    log_err "ZIP_URL is empty. Set ZIP_URL in this script."
     return 1
   fi
 
@@ -637,6 +671,8 @@ sync_one_folder() {
   local src_folder="$1"
   local dest_folder="$2"
 
+  log "Checking: $(basename "$src_folder")"
+
   local src_script="$src_folder/script"
   local src_name="$src_folder/name"
   local src_desc="$src_folder/description"
@@ -654,10 +690,14 @@ sync_one_folder() {
 
   if [[ ! -d "$dest_folder" ]]; then
     if [[ "$INSTALL_MISSING" != "1" ]]; then
-      log "Skipping missing folder (not installed): $(basename "$dest_folder")"
+      log "Skipping (not installed): $(basename "$dest_folder")"
       return 2
     fi
-    log "Installing new folder: $(basename "$dest_folder")"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "Would install: $(basename "$dest_folder")"
+    else
+      log "Installing: $(basename "$dest_folder")"
+    fi
     if [[ "$DRY_RUN" == "0" ]]; then
       mkdir -p "$dest_folder"
       atomic_replace_file "$src_script" "$dest_script" || return 1
@@ -720,10 +760,17 @@ sync_one_folder() {
 
   if [[ $changed -eq 0 ]]; then
     rm -f "$merged"
-    log "No changes: $(basename "$dest_folder")"
+    log "Unchanged: $(basename "$dest_folder")"
     return 2
   fi
 
+  local reason_csv="${reasons[*]}"
+  reason_csv="${reason_csv// /, }"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "Would update: $(basename "$dest_folder") (${reason_csv})"
+  else
+    log "Updated: $(basename "$dest_folder") (${reason_csv})"
+  fi
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
     backup_file "$dest_script" "$(basename "$dest_folder")"
@@ -807,8 +854,14 @@ main() {
   log "DryRun: $DRY_RUN"
 
   local src_folder folder_name dest_folder
-  local updated=0 skipped=0 fail=0
+  local updated=0 skipped=0 fail=0 unchanged=0
+  local -a src_folder_list=()
   while IFS= read -r src_folder; do
+    [[ -n "$src_folder" ]] && src_folder_list+=("$src_folder")
+  done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  log "Found ${#src_folder_list[@]} script folder(s) in source"
+
+  for src_folder in "${src_folder_list[@]}"; do
     folder_name="$(basename "$src_folder")"
     dest_folder="$DEST_DIR/$folder_name"
 
@@ -818,21 +871,29 @@ main() {
         for _inc in "${INCLUDE_FOLDERS[@]}"; do
           [[ "$folder_name" == "$_inc" ]] && { _found=1; break; }
         done
-        [[ $_found -eq 0 ]] && { skipped=$((skipped + 1)); continue; }
+        if [[ $_found -eq 0 ]]; then
+          log "Skipped (not in INCLUDE_FOLDERS): $folder_name"
+          skipped=$((skipped + 1))
+          continue
+        fi
       fi
       local _exc
       for _exc in "${EXCLUDE_FOLDERS[@]}"; do
-        [[ "$folder_name" == "$_exc" ]] && { skipped=$((skipped + 1)); continue 2; }
+        if [[ "$folder_name" == "$_exc" ]]; then
+          log "Skipped (in EXCLUDE_FOLDERS): $folder_name"
+          skipped=$((skipped + 1))
+          continue 2
+        fi
       done
     sync_one_folder "$src_folder" "$dest_folder"
     case $? in
       0) updated=$((updated + 1)) ;;
-      2) skipped=$((skipped + 1)) ;;
+      2) unchanged=$((unchanged + 1)) ;;
       *) fail=$((fail + 1)) ;;
     esac
-  done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  done
 
-  log "Done. Updated: ${updated:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
+  log "Done. Updated: ${updated:-0}, Unchanged: ${unchanged:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
   if [[ "${fail:-0}" -gt 0 ]]; then
     return 1
   fi

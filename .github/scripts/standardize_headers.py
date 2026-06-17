@@ -8,11 +8,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-NOTE = "# Note: Output goes to stdout; Unraid User Scripts shows it in the run window."
+NOTE = "# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk."
 FOOTER = """\
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts"""
+# License: GPL-3.0"""
 
 CFG = "# Configuration (edit script variables below):"
 
@@ -177,7 +177,7 @@ HEADERS: dict[str, str] = {
         "Delete Plex codec cache (Plex re-downloads as needed).",
         ["Frees space under PLEX_CODECS_PATH. Plex may briefly re-transcode after clearing."],
         ["./clear-plex-codecs.sh", "Edit variables in EDIT FOR YOUR SETUP below."],
-        ["PLEX_CODECS_PATH: Plex codec cache directory"],
+        ["PLEX_PATH: Plex appdata root (used when PLEX_CODECS_PATH is empty)", "PLEX_CODECS_PATH: codec cache directory (empty = under PLEX_PATH)"],
     ),
     "delete-dangling-images.sh": hdr(
         "delete-dangling-images.sh",
@@ -393,7 +393,7 @@ HEADERS: dict[str, str] = {
         [
             "SONARR_URL / SONARR_API_KEY",
             "AIRING_PROFILE_ID / UPCOMING_PROFILE_ID / ENDED_PROFILE_ID / CONTINUING_NO_UPCOMING_PROFILE_ID",
-            "PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING",
+            "PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING: \"true\" or \"false\"",
             "AIRING_DAYS / UPCOMING_DAYS",
             "DRY_RUN / MONITORED_ONLY / TRIGGER_SEARCH / MAX_UPDATES_PER_RUN",
             "CURL_TIMEOUT / RATE_LIMIT_DELAY / RETRY_COUNT / SONARR_VERIFY_SSL",

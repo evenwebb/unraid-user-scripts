@@ -23,11 +23,11 @@
 #
 # Requires: curl, jq, python3 (ffprobe optional if USE_FFPROBE_FALLBACK=1)
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -75,19 +75,9 @@ FAST_DISCOVERY="1"
 
 ###############################################################################
 
-###############################################################################
-# Logging
-###############################################################################
-
 timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
-
-# Validate LOG_FILE path (reject path traversal)
-if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
-    exit 1
-fi
 
 log() {
     local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $*"
@@ -101,11 +91,21 @@ log_err() {
     [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
 }
 
+# Validate LOG_FILE path (reject path traversal)
+if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+    log_err "LOG_FILE path is not allowed. Choose a normal file path without '..'."
+    exit 1
+fi
+
 log_line() {
   local level="$1"
   shift
   local msg="[$(timestamp)] [$level] $*"
-  echo "$msg"
+  if [[ "$level" == "DEBUG" ]]; then
+    echo "$msg" >&2
+  else
+    echo "$msg"
+  fi
   if [[ -n "$LOG_FILE" ]]; then
     printf '%s\n' "$msg" >> "$LOG_FILE"
   fi
@@ -377,31 +377,61 @@ api_get() {
   return 0
 }
 
-api_delete_status() {
-  local path="$1"
-  curl -sS -o /dev/null -w '%{http_code}' -m 60 \
-    -X DELETE \
-    -H "X-Api-Key: $RADARR_API_KEY" \
-    "$RADARR_URL$path"
-}
-
-api_post_status() {
-  local path="$1"
-  local body="${2:-}"
-  if [[ -n "$body" ]]; then
-    curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+_radarr_api_status() {
+  local method="$1" path="$2" task="$3" body="${4:-}"
+  local url="${RADARR_URL}${path}" code curl_err fix_hint
+  fix_hint="Check RADARR_URL and RADARR_API_KEY in this script (Radarr → Settings → General → API Key)."
+  curl_err=$(mktemp) || { echo "000"; return 1; }
+  if [[ "$method" == "POST" && -n "$body" ]]; then
+    code=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' \
       -X POST \
       -H "X-Api-Key: $RADARR_API_KEY" \
       -H "Content-Type: application/json" \
       -d "$body" \
-      "$RADARR_URL$path"
-  else
-    curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+      "$url" 2>"$curl_err") || {
+      _log_service_failure "Radarr" "$task" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+      rm -f "$curl_err"
+      echo "000"
+      return 1
+    }
+  elif [[ "$method" == "POST" ]]; then
+    code=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' \
       -X POST \
       -H "X-Api-Key: $RADARR_API_KEY" \
       -H "Content-Length: 0" \
-      "$RADARR_URL$path"
+      "$url" 2>"$curl_err") || {
+      _log_service_failure "Radarr" "$task" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+      rm -f "$curl_err"
+      echo "000"
+      return 1
+    }
+  else
+    code=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' \
+      -X "$method" \
+      -H "X-Api-Key: $RADARR_API_KEY" \
+      "$url" 2>"$curl_err") || {
+      _log_service_failure "Radarr" "$task" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+      rm -f "$curl_err"
+      echo "000"
+      return 1
+    }
   fi
+  rm -f "$curl_err"
+  if [[ ! "$code" =~ ^2 ]]; then
+    _log_service_failure "Radarr" "$task" "$RADARR_URL" "$code" "" "" "$fix_hint"
+  fi
+  echo "$code"
+  [[ "$code" =~ ^2 ]]
+}
+
+api_delete_status() {
+  local path="$1" task="${2:-updating Radarr}"
+  _radarr_api_status "DELETE" "$path" "$task" ""
+}
+
+api_post_status() {
+  local path="$1" body="${2:-}" task="${3:-updating Radarr}"
+  _radarr_api_status "POST" "$path" "$task" "$body"
 }
 
 verify_radarr_connection() {
@@ -790,7 +820,7 @@ delete_movie_file() {
   fi
 
   local code
-  code="$(api_delete_status "/api/v3/moviefile/${file_id}")" || code="000"
+  code="$(api_delete_status "/api/v3/moviefile/${file_id}" "deleting movie file ${file_id}")" || code="000"
   if [[ "$code" =~ ^20[0-9]$ ]]; then
     FILES_DELETED=$((FILES_DELETED + 1))
     return 0
@@ -812,7 +842,7 @@ search_movie() {
   fi
 
   local code
-  code="$(api_post_status "/api/v3/command" "$body")" || code="000"
+  code="$(api_post_status "/api/v3/command" "$body" "searching for a replacement movie")" || code="000"
   if [[ "$code" =~ ^20[0-9]$ ]]; then
     SEARCHES_TRIGGERED=$((SEARCHES_TRIGGERED + 1))
     return 0
@@ -838,7 +868,7 @@ attempt_radarr_blacklist() {
   fi
 
   local code
-  code="$(api_post_status "/api/v3/history/failed/${history_id}")" || code="000"
+  code="$(api_post_status "/api/v3/history/failed/${history_id}" "" "blocklisting a failed release")" || code="000"
   if [[ "$code" =~ ^20[0-9]$ ]]; then
     RADARR_BLACKLIST_SUCCESSES=$((RADARR_BLACKLIST_SUCCESSES + 1))
     return 0

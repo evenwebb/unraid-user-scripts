@@ -17,11 +17,11 @@
 #
 # Requires: root (run with sudo)
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -42,7 +42,9 @@ LOG_FILE=""
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
-        echo "Error: LOG_FILE path invalid (reject .., - prefix, or newlines)." >&2
+        _ui_msg="Error: LOG_FILE path invalid (reject .., - prefix, or newlines)."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
         exit 1
     fi
 fi
@@ -56,6 +58,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
@@ -94,7 +97,7 @@ main() {
     fi
 
     if [[ ${#disks_to_check[@]} -eq 0 ]]; then
-        log_err "No disks to check. Set DISKS in script or ensure smartctl --scan finds devices."
+        log_err "No disks to check. Set DISKS in this script or ensure smartctl --scan finds devices (run as root if needed)."
         return 1
     fi
 
@@ -110,9 +113,17 @@ main() {
             continue
         fi
 
-        local output
-        output=$(smartctl -H "$disk" 2>/dev/null || true)
+        local err_file output err_text
+        err_file=$(mktemp) || { log_err "Could not create temp file."; continue; }
+        output=$(smartctl -H "$disk" 2>"$err_file") || output=""
+        err_text=$(tr '\n' ' ' <"$err_file" | sed 's/  */ /g')
+        rm -f "$err_file"
         ((checked++)) || true
+
+        if [[ -z "$output" && -n "$err_text" ]]; then
+            log_err "  $disk: smartctl failed — ${err_text} (try running this script as root if permission was denied)"
+            continue
+        fi
 
         if echo "$output" | grep -qi "SMART.*PASSED"; then
             log "  $disk: PASSED"
@@ -120,7 +131,7 @@ main() {
             log "  $disk: FAILED"
             failed_disks+=("$disk")
         else
-            log "  $disk: Unknown (no SMART data or unsupported)"
+            log "  $disk: Unknown (no SMART data or unsupported device)"
         fi
     done
 
@@ -131,10 +142,12 @@ main() {
         failed_list=$(IFS=,; echo "${failed_disks[*]}")
         log_err "SMART failure(s) on: $failed_list"
         if [[ -x "$NOTIFY_SCRIPT" ]]; then
-            "$NOTIFY_SCRIPT" -e "SMART Check" -s "Disk health alert" \
-                -d "SMART FAILED on: $failed_list" -i "alert"
+            if ! "$NOTIFY_SCRIPT" -e "SMART Check" -s "Disk health alert" \
+                -d "SMART FAILED on: $failed_list" -i "alert"; then
+                log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+            fi
         else
-            log "Warning: NOTIFY_SCRIPT not executable, alert not sent."
+            log_err "NOTIFY_SCRIPT is not executable — alert was not sent. Check NOTIFY_SCRIPT in this script."
         fi
         return 1
     fi

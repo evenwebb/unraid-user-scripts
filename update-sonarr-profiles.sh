@@ -14,17 +14,17 @@
 # Configuration (edit script variables below):
 #   - SONARR_URL / SONARR_API_KEY
 #   - AIRING_PROFILE_ID / UPCOMING_PROFILE_ID / ENDED_PROFILE_ID / CONTINUING_NO_UPCOMING_PROFILE_ID
-#   - PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING
+#   - PROCESS_AIRING / PROCESS_UPCOMING / PROCESS_ENDED / PROCESS_CONTINUING_NO_UPCOMING: "true" or "false"
 #   - AIRING_DAYS / UPCOMING_DAYS
 #   - DRY_RUN / MONITORED_ONLY / TRIGGER_SEARCH / MAX_UPDATES_PER_RUN
 #   - CURL_TIMEOUT / RATE_LIMIT_DELAY / RETRY_COUNT / SONARR_VERIFY_SSL
 #   - LOG_VERBOSE / LOG_FILE / NOTIFY_SCRIPT
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -96,7 +96,9 @@ RETRY_COUNT="2"
 # Validate LOG_FILE path
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
-        echo "Error: LOG_FILE path invalid (reject .., - prefix, or newlines)." >&2
+        _ui_msg="Error: LOG_FILE path invalid (reject .., - prefix, or newlines)."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
         exit 1
     fi
 fi
@@ -205,8 +207,14 @@ is_safe_notify_path() {
 send_unraid_notify() {
     local event="$1" subject="$2" description="$3"
     [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
-    is_safe_notify_path "$NOTIFY_SCRIPT" || return 0
-    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal" 2>/dev/null || true
+    if ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
+        return 1
+    fi
+    if ! "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal"; then
+        log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+        return 1
+    fi
 }
 
 sonarr_put() {

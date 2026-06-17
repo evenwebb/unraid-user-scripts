@@ -17,11 +17,11 @@
 #   - NOTIFY_SCRIPT: dynamix notify path
 #   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -61,15 +61,21 @@ unset _SCRIPT_DIR
 
 # Validate paths
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT" == "-"* ]]; then
-    echo "Error: NOTIFY_SCRIPT path invalid." >&2
+    _ui_msg="Error: NOTIFY_SCRIPT path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 if [[ -n "$STATE_FILE" ]] && [[ "$STATE_FILE" == *".."* || "$STATE_FILE" == "-"* ]]; then
-    echo "Error: STATE_FILE path invalid." >&2
+    _ui_msg="Error: STATE_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 
@@ -82,6 +88,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
@@ -150,8 +157,14 @@ list_largest_containers() {
 send_unraid_notify() {
     local event="$1" subject="$2" description="$3" importance="${4:-normal}"
     [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
-    is_safe_path "$NOTIFY_SCRIPT" || return 0
-    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
+    if ! is_safe_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
+        return 1
+    fi
+    if ! "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance"; then
+        log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+        return 1
+    fi
 }
 
 main() {
@@ -181,6 +194,10 @@ main() {
     local usage_pct usage_human prev_level current_level
     usage_pct=$(get_usage_pct "$DOCKER_PATH")
     usage_human=$(get_usage_human "$DOCKER_PATH")
+    if [[ ! "$usage_pct" =~ ^[0-9]+$ ]]; then
+        log_err "Could not read docker.img usage from $DOCKER_PATH. Check DOCKER_PATH in this script."
+        return 1
+    fi
     prev_level=$(read_state_level "$STATE_FILE")
 
     log "Docker image usage: ${usage_pct}% (${usage_human})"
@@ -205,15 +222,13 @@ main() {
 
     if [[ "$current_level" -eq 2 && "$prev_level" -lt 2 ]]; then
         log "CRITICAL: Docker image at ${usage_pct}% (threshold: ${CRITICAL_THRESHOLD_PCT}%)."
-        send_unraid_notify "critical" "Docker Image Critical" \
-            "Docker image critically full" \
+        send_unraid_notify "Docker Image Critical" "Docker image critically full" \
             "Docker image usage is ${usage_pct}% (${usage_human}). Containers may fail if it fills completely.${container_info}" \
             "alert"
         write_state_level "$STATE_FILE" 2 || true
     elif [[ "$current_level" -eq 1 && "$prev_level" -lt 1 ]]; then
         log "WARNING: Docker image at ${usage_pct}% (threshold: ${WARNING_THRESHOLD_PCT}%)."
-        send_unraid_notify "warning" "Docker Image Warning" \
-            "Docker image usage warning" \
+        send_unraid_notify "Docker Image Warning" "Docker image usage warning" \
             "Docker image usage is ${usage_pct}% (${usage_human}). Consider cleaning up unused images/volumes.${container_info}" \
             "warning"
         write_state_level "$STATE_FILE" 1 || true

@@ -14,11 +14,11 @@
 #   - DOCKER_CONTAINERS_PATH: path to container log directory
 #   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -37,7 +37,9 @@ LOG_FILE=""
 HEAD_COUNT="60"
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 if [[ -n "$LOG_FILE" ]]; then
@@ -51,7 +53,9 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
 
 list_docker_log_sizes() {
@@ -95,9 +99,19 @@ main() {
     list_docker_log_sizes
     echo "====================================================================================================================================================================================="
     log "Truncating container logs..."
+    local trunc_fail=0
     while IFS= read -r -d '' logfile; do
-        [[ -f "$logfile" ]] && : > "$logfile"
+        if [[ -f "$logfile" ]]; then
+            if ! : > "$logfile" 2>/dev/null; then
+                log_err "Could not truncate log file: $logfile"
+                trunc_fail=1
+            fi
+        fi
     done < <(find "$DOCKER_CONTAINERS_PATH" -name '*.log' -print0 2>/dev/null)
+    if [[ "$trunc_fail" -ne 0 ]]; then
+        log_err "One or more log files could not be truncated."
+        return 1
+    fi
     sleep 2
     log "Cleaning complete."
     echo ""

@@ -11,13 +11,14 @@
 #   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - PLEX_CODECS_PATH: Plex codec cache directory
+#   - PLEX_PATH: Plex appdata root (used when PLEX_CODECS_PATH is empty)
+#   - PLEX_CODECS_PATH: codec cache directory (empty = under PLEX_PATH)
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -32,22 +33,24 @@ PLEX_PATH="/mnt/user/appdata/plexmediaserver"
 # Codecs folder (leave empty = under PLEX_PATH; set full path only if yours differs)
 PLEX_CODECS_PATH=""
 
-if [[ -z "$PLEX_CODECS_PATH" ]]; then
-    if [[ -z "$PLEX_PATH" ]]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Set PLEX_PATH (appdata root) or set PLEX_CODECS_PATH to the Codecs directory." >&2
-        exit 1
-    fi
-    PLEX_CODECS_PATH="${PLEX_PATH}/Library/Application Support/Plex Media Server/Codecs"
-fi
-
 ###############################################################################
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
+    echo "$msg" >&2
 }
+
+if [[ -z "$PLEX_CODECS_PATH" ]]; then
+    if [[ -z "$PLEX_PATH" ]]; then
+        log_err "Set PLEX_PATH (appdata root) or set PLEX_CODECS_PATH to the Codecs directory."
+        exit 1
+    fi
+    PLEX_CODECS_PATH="${PLEX_PATH}/Library/Application Support/Plex Media Server/Codecs"
+fi
 
 # Require path to look like a Plex appdata path to reduce accidental misuse
 is_safe_plex_codecs_path() {

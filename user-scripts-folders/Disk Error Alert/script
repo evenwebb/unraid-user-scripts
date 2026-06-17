@@ -20,11 +20,11 @@
 #   - SMARTCTL_PATH: smartctl binary path
 #   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -84,7 +84,9 @@ unset _SCRIPT_DIR
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
-        echo "Error: LOG_FILE path invalid (reject .., - prefix, or newlines)." >&2
+        _ui_msg="Error: LOG_FILE path invalid (reject .., - prefix, or newlines)."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
         exit 1
     fi
 fi
@@ -98,6 +100,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }

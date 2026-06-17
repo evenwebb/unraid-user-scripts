@@ -20,11 +20,11 @@
 #   - MAX_RESTARTS_PER_DAY: daily restart cap (0 = unlimited)
 #   - CONNECT_TIMEOUT / MAX_TIME: curl timeouts for UI check
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -73,11 +73,15 @@ unset _SCRIPT_DIR
 ###############################################################################
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    echo "Error: LOG_FILE path invalid." >&2
+    _ui_msg="Error: LOG_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 if [[ -n "$STATE_FILE" ]] && [[ "$STATE_FILE" == *".."* || "$STATE_FILE" == "-"* ]]; then
-    echo "Error: STATE_FILE path invalid." >&2
+    _ui_msg="Error: STATE_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
     exit 1
 fi
 
@@ -90,6 +94,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
@@ -119,8 +124,14 @@ is_safe_notify_path() {
 send_unraid_notify() {
     local event="$1" subject="$2" description="$3" importance="${4:-warning}"
     [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
-    is_safe_notify_path "$NOTIFY_SCRIPT" || return 0
-    "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance" 2>/dev/null || true
+    if ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
+        return 1
+    fi
+    if ! "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "$importance"; then
+        log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
+        return 1
+    fi
 }
 
 # True if HTTP status means Plex is listening (auth/challenge/redirect still mean "up").
@@ -131,11 +142,32 @@ is_plex_http_ok() {
     esac
 }
 
-# GET URL -> prints HTTP code or 000 (curl uses 000 to signal connection failure;
-# no real HTTP status code is 000, so this is unambiguous by design).
+_friendly_curl_err() {
+    local msg="$1"
+    msg="${msg#curl: }"
+    if [[ "$msg" == *"Could not resolve host"* ]]; then
+        echo "The server name could not be found — check PLEX_WEB_UI in this script."
+    elif [[ "$msg" == *"Connection refused"* ]]; then
+        echo "Connection refused — is Plex running and is the port in PLEX_WEB_UI correct?"
+    elif [[ "$msg" == *"Failed to connect"* ]]; then
+        echo "Could not connect — check that Plex is running and PLEX_WEB_UI is correct."
+    elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
+        echo "The connection timed out — check PLEX_WEB_UI and network."
+    else
+        echo "$msg"
+    fi
+}
+
+# GET URL -> prints HTTP code or 000 (curl uses 000 when the connection fails).
 curl_http_code() {
-    local url="$1"
-    curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$url" 2>/dev/null || echo "000"
+    local url="$1" code curl_err
+    curl_err=$(mktemp) || { echo "000"; return 0; }
+    code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" -m "$MAX_TIME" "$url" 2>"$curl_err") || code="000"
+    if [[ "$code" == "000" && -s "$curl_err" ]]; then
+        log_err "Could not reach Plex at ${url} while checking the web UI. $(_friendly_curl_err "$(tr '\n' ' ' <"$curl_err")")"
+    fi
+    rm -f "$curl_err"
+    echo "$code"
 }
 
 # Path component of URL (e.g. /web/index.html), default /
@@ -185,11 +217,11 @@ get_plex_state_key() {
 
 main() {
     if [[ -z "$PLEX_CONTAINER_NAME" ]]; then
-        log_err "PLEX_CONTAINER_NAME is empty."
+        log_err "PLEX_CONTAINER_NAME is empty. Set it to your Plex Docker container name in this script."
         return 1
     fi
     if [[ -z "$PLEX_WEB_UI" || ! "$PLEX_WEB_UI" =~ ^https?:// ]]; then
-        log_err "PLEX_WEB_UI must be a valid http(s) URL."
+        log_err "PLEX_WEB_UI must be a full web address starting with http:// or https:// (you entered: ${PLEX_WEB_UI:-empty})"
         return 1
     fi
 
@@ -199,7 +231,7 @@ main() {
     fi
 
     if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF "$PLEX_CONTAINER_NAME"; then
-        log "Plex container is not running. No action taken."
+        log "Plex container '$PLEX_CONTAINER_NAME' is not running. No action taken."
         return 0
     fi
 
@@ -277,7 +309,7 @@ main() {
         return 0
     fi
 
-    log "Plex web UI check failed (primary HTTP $primary_code, loopback HTTP ${http_code:-n/a}, in-container HTTP ${inner_code:-000})."
+    log "Plex web UI check failed (primary HTTP $primary_code, loopback HTTP ${http_code:-n/a}, in-container HTTP ${inner_code:-000}). Check PLEX_WEB_UI and PLEX_CONTAINER_NAME in this script."
 
     if [[ "$RESTART_ONLY_IF_AUTOSTART" == "1" ]]; then
         local policy

@@ -17,11 +17,11 @@
 #   - NOTIFY_SCRIPT: dynamix notify path
 #   - RESUME_EXISTING: 1 = continue an in-progress scrub
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -53,6 +53,7 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
 }
 
@@ -118,22 +119,28 @@ main() {
     fi
 
     if [[ $notify_ok -eq 1 ]]; then
-        "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub started" -i "normal" -m "Scrubbing $SCRUB_DEVICE"
+        if ! "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub started" -i "normal" -m "Scrubbing $SCRUB_DEVICE"; then
+            log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script."
+        fi
     else
-        [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && log "Notify script not found, running without notifications"
+        [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && log "Notify script not found — running without notifications."
     fi
 
     if btrfs scrub start -B "$SCRUB_DEVICE" > "$log_dest" 2>&1; then
         if [[ $notify_ok -eq 1 ]]; then
-            "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub finished successfully" -i "normal" -m "Log: $log_dest"
+            if ! "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub finished successfully" -i "normal" -m "Log: $log_dest"; then
+                log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script."
+            fi
         fi
         log "Scrub finished successfully. Log: $log_dest"
     else
         local scrub_exit=$?
         if [[ $notify_ok -eq 1 ]]; then
-            "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub failed or found errors" -i "alert" -m "Check log: $log_dest"
+            if ! "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub failed or found errors" -i "alert" -m "Check log: $log_dest"; then
+                log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script."
+            fi
         fi
-        log_err "Scrub failed (exit $scrub_exit). Check $log_dest"
+        log_err "Scrub failed (exit $scrub_exit). Check $log_dest for details."
         return 1
     fi
 }

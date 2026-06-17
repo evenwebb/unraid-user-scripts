@@ -22,11 +22,11 @@
 #
 # Requires: curl, jq (flock if LOCK_FILE is set)
 #
-# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+# Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0
 
 set -u
 set -o pipefail
@@ -75,7 +75,6 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
-    # User Scripts plugin window shows stdout; also write stderr for CLI/cron.
     echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
@@ -344,6 +343,34 @@ _arr_command_post() {
     return 0
 }
 
+# Remove one *arr queue item; logs connection/auth failures in plain language.
+_arr_queue_delete() {
+    local app="$1" base_url="$2" api_key="$3" qid="$4" blocklist_val="$5"
+    local resp code body curl_err arr_fix task
+    task="removing queue item ${qid}"
+    case "$app" in
+        Radarr) arr_fix="Check RADARR_URL and RADARR_API_KEY in this script." ;;
+        Sonarr) arr_fix="Check SONARR_URL and SONARR_API_KEY in this script." ;;
+        *) arr_fix="Check the URL and API key for ${app} in this script." ;;
+    esac
+    curl_err=$(mktemp) || return 1
+    resp=$(_curl -s -S -m "${CURL_TIMEOUT}" -w "\n%{http_code}" -X DELETE \
+      -H "X-Api-Key: ${api_key}" \
+      "${base_url}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" 2>"$curl_err") || {
+      _log_service_failure "$app" "$task" "$base_url" "" "" "$(tr '\n' ' ' <"$curl_err")" "$arr_fix"
+      rm -f "$curl_err"
+      return 1
+    }
+    rm -f "$curl_err"
+    code=$(echo "$resp" | tail -n1)
+    body=$(echo "$resp" | sed '$d')
+    if [[ "$code" != "2"* ]]; then
+      _log_service_failure "$app" "$task" "$base_url" "$code" "$body" "" "$arr_fix"
+      return 1
+    fi
+    return 0
+}
+
 # --- Fetch NZBGet queue IDs ---
 nzbget_ids_raw=$(_nzbget_rpc "reading the NZBGet download queue" '{"jsonrpc":"2.0","method":"listgroups","params":[0],"id":1}') || exit 1
 
@@ -508,14 +535,12 @@ process_radarr() {
     for qid in "${qid_arr[@]}"; do
       [[ -z "$qid" ]] && continue
       [[ "$MAX_REMOVALS_PER_RUN" -gt 0 && "$removals_count" -ge "$MAX_REMOVALS_PER_RUN" ]] && { log "Radarr: stopped (MAX_REMOVALS_PER_RUN=$MAX_REMOVALS_PER_RUN reached)"; break; }
-      if _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${RADARR_API_KEY}" \
-        "${RADARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1; then
+      if _arr_queue_delete "Radarr" "$RADARR_URL" "$RADARR_API_KEY" "$qid" "$blocklist_val"; then
         ((removals_count++))
         ((radarr_removed_count++)) || true
         _rate_limit
       else
         ((radarr_remove_failures++)) || true
-        log_err "Radarr could not remove queue item ${qid}. Check RADARR_URL and RADARR_API_KEY in this script."
       fi
     done
     if [[ -n "$unique_movies" && "$TRIGGER_SEARCH" == "1" ]]; then
@@ -591,14 +616,12 @@ process_sonarr() {
     for qid in "${qid_arr[@]}"; do
       [[ -z "$qid" ]] && continue
       [[ "$MAX_REMOVALS_PER_RUN" -gt 0 && "$removals_count" -ge "$MAX_REMOVALS_PER_RUN" ]] && { log "Sonarr: stopped (MAX_REMOVALS_PER_RUN=$MAX_REMOVALS_PER_RUN reached)"; break; }
-      if _curl -s -S -m "${CURL_TIMEOUT}" -X DELETE -H "X-Api-Key: ${SONARR_API_KEY}" \
-        "${SONARR_URL}/api/v3/queue/${qid}?removeFromClient=true&blocklist=${blocklist_val}" >/dev/null 2>&1; then
+      if _arr_queue_delete "Sonarr" "$SONARR_URL" "$SONARR_API_KEY" "$qid" "$blocklist_val"; then
         ((removals_count++))
         ((sonarr_removed_count++)) || true
         _rate_limit
       else
         ((sonarr_remove_failures++)) || true
-        log_err "Sonarr could not remove queue item ${qid}. Check SONARR_URL and SONARR_API_KEY in this script."
       fi
     done
     if [[ "$TRIGGER_SEARCH" == "1" ]]; then
