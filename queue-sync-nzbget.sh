@@ -355,21 +355,20 @@ process_radarr() {
   movie_ids=""
   while IFS= read -r rec; do
     [[ -z "$rec" ]] && continue
-    local proto did mid title
+    local proto did mid title qid
+    proto=""; did=""; mid=""; title=""; qid=""
     IFS=$'\t' read -r proto did mid title qid <<< "$(radarr_queue_fields <<< "$rec")"
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((radarr_stale_count++)) || true
     to_remove="$to_remove $qid"
     if [[ -n "$mid" ]]; then movie_ids="$movie_ids $mid"; fi
-    local safe_title="${title//\$/\\$}"
-    safe_title="${safe_title//\`/\\`}"
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log_fmt "Radarr: [DRY-RUN] would remove%s '%s' (queueId=%s), would search movie %s" "${bl_msg}" "${safe_title}" "${qid}" "${mid}"
+      log_fmt "Radarr: [DRY-RUN] would remove%s '%s' (queueId=%s), would search movie %s" "${bl_msg}" "${title}" "${qid}" "${mid}"
     else
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log_fmt "Radarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${safe_title}" "${did}" "${qid}" "${bl_msg}"
+      log_fmt "Radarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${title}" "${did}" "${qid}" "${bl_msg}"
     fi
   done <<< "$records"
 
@@ -432,24 +431,23 @@ process_sonarr() {
   series_ids=""
   while IFS= read -r rec; do
     [[ -z "$rec" ]] && continue
-    local proto did title episode_ids_csv sid
+    local proto did title qid episode_ids_csv sid
+    proto=""; did=""; title=""; qid=""; episode_ids_csv=""; sid=""
     IFS=$'\t' read -r proto did title qid episode_ids_csv sid <<< "$(sonarr_queue_fields <<< "$rec")"
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((sonarr_stale_count++)) || true
     to_remove="$to_remove $qid"
-    local safe_title="${title//\$/\\$}"
-    safe_title="${safe_title//\`/\\`}"
     if [[ -n "$episode_ids_csv" ]]; then
       episode_ids+=" ${episode_ids_csv//,/ }"
     fi
     [[ -n "$sid" && "$sid" != "null" ]] && series_ids="$series_ids $sid"
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log_fmt "Sonarr: [DRY-RUN] would remove%s '%s' (queueId=%s)" "${bl_msg}" "${safe_title}" "${qid}"
+      log_fmt "Sonarr: [DRY-RUN] would remove%s '%s' (queueId=%s)" "${bl_msg}" "${title}" "${qid}"
     else
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
-      log_fmt "Sonarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${safe_title}" "${did}" "${qid}" "${bl_msg}"
+      log_fmt "Sonarr: stale '%s' (downloadId=%s, queueId=%s) -> remove%s" "${title}" "${did}" "${qid}" "${bl_msg}"
     fi
   done <<< "$records"
 
