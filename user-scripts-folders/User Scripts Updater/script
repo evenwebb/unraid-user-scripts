@@ -532,11 +532,10 @@ config_block_text_changed() {
 merge_config_blocks() {
   # Usage: merge_config_blocks <dest_existing_script> <src_new_script> <out_path>
   #
-  # Keyed overlay: upstream (src) EDIT block determines order, comments, and new keys.
-  # For each assignment KEY= upstream, inserts the destination assignment for KEY when
-  # present; otherwise upstream default stays. Destination-only keys are appended as a
-  # NOTE block after the EDIT region so local extras are not silently dropped when
-  # upstream removes a setting key.
+  # Sets MERGE_KEPT / MERGE_NEW / MERGE_ORPHAN counts for logging.
+  MERGE_KEPT=0
+  MERGE_NEW=0
+  MERGE_ORPHAN=0
   local dest_existing="$1"
   local src_new="$2"
   local out="$3"
@@ -589,11 +588,13 @@ merge_config_blocks() {
       fi
 
       if [[ -n "${dest_by_key[$key]:-}" ]]; then
+        MERGE_KEPT=$((MERGE_KEPT + 1))
         # Multi-line blocks already end with newline; avoid doubling blank lines.
         merged_block+="${dest_by_key[$key]}"
         [[ "${dest_by_key[$key]}" == *$'\n' ]] || merged_block+=$'\n'
         used["$key"]=1
       else
+        MERGE_NEW=$((MERGE_NEW + 1))
         # Keep the upstream assignment block.
         if [[ "$src_block_text" == *$'\n' ]]; then
           merged_block+="$src_block_text"
@@ -613,6 +614,7 @@ merge_config_blocks() {
       orphan_count=$((orphan_count + 1))
     fi
   done
+  MERGE_ORPHAN=$orphan_count
   if [[ $orphan_count -gt 0 ]]; then
     merged_block+=$'\n'
     merged_block+="# NOTE: The following local-only variables were preserved but are not present upstream:"$'\n'
@@ -677,13 +679,32 @@ validate_bash_script() {
     done
     return 1
   fi
+  return 0
+}
+
+merge_settings_note() {
+  [[ "${MERGE_KEPT:-0}" -gt 0 || "${MERGE_NEW:-0}" -gt 0 || "${MERGE_ORPHAN:-0}" -gt 0 ]] || return 0
+  local note="config: ${MERGE_KEPT} kept"
+  [[ "${MERGE_NEW:-0}" -gt 0 ]] && note+=", ${MERGE_NEW} new"
+  [[ "${MERGE_ORPHAN:-0}" -gt 0 ]] && note+=", ${MERGE_ORPHAN} local-only"
+  printf '%s' "$note"
+}
+
+list_to_csv() {
+  local _out="" _item
+  for _item in "$@"; do
+    [[ -z "$_item" ]] && continue
+    [[ -n "$_out" ]] && _out+=", "
+    _out+="$_item"
+  done
+  printf '%s' "$_out"
 }
 
 sync_one_folder() {
   local src_folder="$1"
   local dest_folder="$2"
-
-  log "Checking: $(basename "$src_folder")"
+  local folder_label merged_settings_note=""
+  folder_label="$(basename "$src_folder")"
 
   local src_script="$src_folder/script"
   local src_name="$src_folder/name"
@@ -706,9 +727,9 @@ sync_one_folder() {
       return 3
     fi
     if [[ "$DRY_RUN" == "1" ]]; then
-      log "Would install: $(basename "$dest_folder")"
+      log "Would install: $folder_label"
     else
-      log "Installing: $(basename "$dest_folder")"
+      log "Installed: $folder_label"
     fi
     if [[ "$DRY_RUN" == "0" ]]; then
       mkdir -p "$dest_folder"
@@ -721,6 +742,9 @@ sync_one_folder() {
 
   local merged
   merged="$(mktemp)"
+  MERGE_KEPT=0
+  MERGE_NEW=0
+  MERGE_ORPHAN=0
   if [[ -f "$dest_script" ]]; then
     if [[ "$RESET_CONFIG" == "1" ]]; then
       cp "$src_script" "$merged"
@@ -731,6 +755,7 @@ sync_one_folder() {
         cp "$src_script" "$merged"
       else
         merge_config_blocks "$dest_script" "$src_script" "$merged"
+        merged_settings_note="$(merge_settings_note)"
       fi
     fi
   else
@@ -772,16 +797,17 @@ sync_one_folder() {
 
   if [[ $changed -eq 0 ]]; then
     rm -f "$merged"
-    log "Unchanged: $(basename "$dest_folder")"
     return 2
   fi
 
   local reason_csv="${reasons[*]}"
   reason_csv="${reason_csv// /, }"
+  [[ "$RESET_CONFIG" == "1" ]] && reason_csv="${reason_csv}; config reset"
+  [[ -n "$merged_settings_note" ]] && reason_csv="${reason_csv}; ${merged_settings_note}"
   if [[ "$DRY_RUN" == "1" ]]; then
-    log "Would update: $(basename "$dest_folder") (${reason_csv})"
+    log "Would update: $folder_label ($reason_csv)"
   else
-    log "Updated: $(basename "$dest_folder") (${reason_csv})"
+    log "Updated: $folder_label ($reason_csv)"
   fi
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
@@ -856,23 +882,19 @@ main() {
     return 1
   fi
 
+  local src_folder folder_name dest_folder
+  local updated=0 skipped=0 fail=0 unchanged=0
+  local -a src_folder_list=()
+  local -a updated_list=() skipped_list=() failed_list=()
+  while IFS= read -r src_folder; do
+    [[ -n "$src_folder" ]] && src_folder_list+=("$src_folder")
+  done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
   if [[ "$DRY_RUN" == "0" ]]; then
     mkdir -p "$DEST_DIR" "$BACKUP_DIR" 2>/dev/null || true
   fi
 
-  log "Syncing User Scripts folders"
-  log "Source: $src_folders"
-  log "Dest: $DEST_DIR"
-  log "DryRun: $DRY_RUN"
-
-  local src_folder folder_name dest_folder
-  local updated=0 skipped=0 fail=0 unchanged=0
-  local -a src_folder_list=()
-  local -a updated_list=() unchanged_list=() skipped_list=() failed_list=()
-  while IFS= read -r src_folder; do
-    [[ -n "$src_folder" ]] && src_folder_list+=("$src_folder")
-  done < <(find "$src_folders" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
-  log "Found ${#src_folder_list[@]} script folder(s) in source"
+  log "Syncing ${#src_folder_list[@]} folders → $DEST_DIR (dry-run: $DRY_RUN)"
 
   for src_folder in "${src_folder_list[@]}"; do
     folder_name="$(basename "$src_folder")"
@@ -908,7 +930,6 @@ main() {
         ;;
       2)
         unchanged=$((unchanged + 1))
-        unchanged_list+=("$folder_name")
         ;;
       3)
         skipped=$((skipped + 1))
@@ -923,35 +944,14 @@ main() {
 
   local action="Updated"
   [[ "$DRY_RUN" == "1" ]] && action="Would update"
-  log "--- Sync report ---"
   if [[ ${#updated_list[@]} -gt 0 ]]; then
-    log "${action} (${#updated_list[@]}):"
-    local _n
-    for _n in "${updated_list[@]}"; do
-      log "  ${_n}"
-    done
-  else
-    log "${action}: none"
-  fi
-  if [[ ${#unchanged_list[@]} -gt 0 ]]; then
-    log "Unchanged (${#unchanged_list[@]}):"
-    for _n in "${unchanged_list[@]}"; do
-      log "  ${_n}"
-    done
-  else
-    log "Unchanged: none"
+    log "${action}: $(list_to_csv "${updated_list[@]}")"
   fi
   if [[ ${#skipped_list[@]} -gt 0 ]]; then
-    log "Skipped (${#skipped_list[@]}):"
-    for _n in "${skipped_list[@]}"; do
-      log "  ${_n}"
-    done
+    log "Skipped: $(list_to_csv "${skipped_list[@]}")"
   fi
   if [[ ${#failed_list[@]} -gt 0 ]]; then
-    log "Failed (${#failed_list[@]}):"
-    for _n in "${failed_list[@]}"; do
-      log "  ${_n}"
-    done
+    log "Failed: $(list_to_csv "${failed_list[@]}")"
   fi
 
   log "Done. ${action}: ${updated:-0}, Unchanged: ${unchanged:-0}, Skipped: ${skipped:-0}, Failed: ${fail:-0}"
