@@ -1,26 +1,27 @@
 #!/bin/bash
 #
 # btrfs-scrub.sh
-# Runs a Btrfs scrub on a cache/device and reports results via Unraid notification
+# Run a Btrfs scrub and optionally notify via Unraid dynamix.
 #
 # Description:
-#   Starts a Btrfs scrub on the configured device or mount point, logs output,
-#   and sends Unraid dynamix notifications on start, success, or failure.
-#   Uses -B to run in foreground and wait for completion.
+#   Scrubs SCRUB_DEVICE, logs output, and can notify on start, success, or failure.
 #
 # Usage:
 #   ./btrfs-scrub.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - SCRUB_DEVICE: Path or device to scrub (e.g. /mnt/cache, /mnt/downloads)
-#   - LOG_FILE: Where to save scrub output; parent dir created if missing (default: /boot/logs/scrub.log)
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-##   - ENABLE_NOTIFICATIONS: 1 = send Unraid notifications on start/success/failure, 0 = log only
-#   - RESUME_EXISTING: 1 = cancel and restart if a scrub is already in progress
-
+# Configuration (edit script variables below):
+#   - SCRUB_DEVICE: mount or device to scrub
+#   - LOG_FILE: scrub log path
+#   - ENABLE_NOTIFICATIONS: 1 = Unraid notify, 0 = log only
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - RESUME_EXISTING: 1 = continue an in-progress scrub
+#
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

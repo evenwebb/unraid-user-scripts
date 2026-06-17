@@ -1,51 +1,34 @@
 #!/bin/bash
 #
 # language-guard-sonarr.sh
-# Audits Sonarr episode files for acceptable audio languages, then blocklists,
-# deletes, and re-searches bad releases.
+# Audit Sonarr episode audio languages; fix bad releases via blocklist, delete, and search.
 #
 # Description:
-#   Validates imported Sonarr episode files using Sonarr media-language metadata.
-#   For English-original series, requires at least one English audio track.
-#   For non-English-original series, allows either English or the original language.
-#   When a file is invalid, the script:
-#   - records a permanent script-level blacklist entry
-#   - attempts a Sonarr blacklist for the original release when history exists
-#   - deletes the bad episode file through Sonarr
-#   - triggers a targeted EpisodeSearch replacement
+#   Same language rules as language-guard-radarr.sh for TV episodes.
+#   Defaults to dry run — set DRY_RUN=0 for live remediation.
 #
 # Usage:
-#   ./language-guard-sonarr.sh              # Dry run by default
-#   Set DRY_RUN=0 in the script for live runs
+#   ./language-guard-sonarr.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only (default), 0 = delete/blocklist/search
 #
 # Configuration (edit script variables below):
-#   - SONARR_URL: Sonarr base URL
-#   - SONARR_API_KEY: Sonarr API key
-#   - DRY_RUN: 1 = log only, no deletes/blocklists/searches
-#   - DEBUG: 1 = extra logging, 0 = normal
-#   - USE_FFPROBE_FALLBACK: 1 = use ffprobe when Sonarr metadata is missing
-#   - LOG_FILE: Append logs to this file (empty = stdout only)
-#   - STATE_FILE: Persistent JSON state file (blacklist entries and stats)
-#   - LOCK_FILE: Lock file path to prevent concurrent runs
-#   - RATE_LIMIT_SECONDS: Seconds between Sonarr API actions
-#   - MAX_ACTIONS_PER_RUN: Cap actions per run (safety limit)
-#   - SEARCH_COOLDOWN_DAYS: Minimum days between re-searching the same episode
-#   - DELETE_ONLY_IF_REPLACEABLE: 1 = only delete when replaceable (recommended)
-#   - SERIES_ID: Optional single series ID (test targeting)
-#   - SERIES_FILTER: Optional substring filter on series title (batch targeting)
-#   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
-#   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
-#   - STATS_DUMP: 1 = print run stats and exit
-#   - FAST_DISCOVERY: 1 = faster embedded-Python discovery, 0 = slower shell/jq path
+#   - SONARR_URL / SONARR_API_KEY: Sonarr connection
+#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
+#   - DELETE_ONLY_IF_REPLACEABLE: 1 = skip unmonitored or unreplaceable content
+#   - LOG_FILE / STATE_FILE / LOCK_FILE
+#   - RATE_LIMIT_SECONDS / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
+#   - SERIES_ID / SERIES_FILTER: optional targeting
+#   - CLEAR_BLACKLIST / BLACKLIST_DUMP / STATS_DUMP
+#   - FAST_DISCOVERY: 1 = faster Python discovery (recommended)
 #
-# Logging (Unraid-friendly):
-#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
-#   - State is persisted in STATE_FILE to track blacklist entries and run stats.
-#   - When LOG_FILE is set, each log line is also appended to that file.
+# Requires: curl, jq, python3 (ffprobe optional if USE_FFPROBE_FALLBACK=1)
+#
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail
@@ -117,6 +100,7 @@ log() {
 }
 log_err() {
     local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
 }
@@ -135,6 +119,45 @@ debug() {
   if [[ "$DEBUG" == "1" ]]; then
     log_line "DEBUG" "$*"
   fi
+}
+
+_friendly_curl_err() {
+  local msg="$1"
+  msg="${msg#curl: }"
+  if [[ "$msg" == *"Could not resolve host"* ]]; then
+    echo "The server name could not be found — check the IP address or hostname in the script."
+  elif [[ "$msg" == *"Connection refused"* ]]; then
+    echo "Connection refused — is Sonarr running and is the port number correct?"
+  elif [[ "$msg" == *"Failed to connect"* ]]; then
+    echo "Could not connect — check that Sonarr is running and the URL is correct."
+  elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
+    echo "The connection timed out — check the URL and network."
+  elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
+    echo "Login was rejected — wrong API key."
+  else
+    echo "$msg"
+  fi
+}
+
+_log_service_failure() {
+  local service="$1" task="$2" url="$3" code="$4" body="$5" curl_err="${6:-}" fix_hint="${7:-Check the URL and API key in this script.}"
+  if [[ -n "$curl_err" ]]; then
+    log_line "ERROR" "Could not reach ${service} while ${task}. $(_friendly_curl_err "$curl_err") ${fix_hint}"
+    return
+  fi
+  case "$code" in
+    401) log_line "ERROR" "Wrong API key for ${service} while ${task}. ${fix_hint}" ;;
+    403) log_line "ERROR" "${service} refused access while ${task}. ${fix_hint}" ;;
+    404) log_line "ERROR" "Could not find ${service} at ${url} while ${task}. Check SONARR_URL in this script — it should look like http://your-server:8989 with no extra path." ;;
+    000|"") log_line "ERROR" "Could not connect to ${service} at ${url} while ${task}. Check SONARR_URL, that Sonarr is running, and that the port is correct." ;;
+    *)
+      if [[ -n "$body" ]] && ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+        log_line "ERROR" "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check SONARR_URL in this script."
+      else
+        log_line "ERROR" "${service} returned an error while ${task}. ${fix_hint}"
+      fi
+      ;;
+  esac
 }
 
 # Run jq with JSON from a bash variable via pipe only (never <<< here-strings on JSON:
@@ -327,10 +350,28 @@ dump_stats_state() {
 
 api_get() {
   local path="$1"
-  curl -sS -m 60 \
+  local task="${2:-talking to Sonarr}"
+  local url="${SONARR_URL}${path}"
+  local resp code body curl_err fix_hint
+  fix_hint="Check SONARR_URL and SONARR_API_KEY in this script (Sonarr → Settings → General → API Key)."
+  curl_err=$(mktemp) || return 1
+  resp=$(curl -sS -m 60 -w "\n%{http_code}" \
     -H "X-Api-Key: $SONARR_API_KEY" \
     -H "Accept: application/json" \
-    "$SONARR_URL$path"
+    "$url" 2>"$curl_err") || {
+    _log_service_failure "Sonarr" "$task" "$SONARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+    rm -f "$curl_err"
+    return 1
+  }
+  rm -f "$curl_err"
+  code=$(echo "$resp" | tail -n1)
+  body=$(echo "$resp" | sed '$d')
+  if [[ "$code" != "200" ]] || ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+    _log_service_failure "Sonarr" "$task" "$SONARR_URL" "$code" "$body" "" "$fix_hint"
+    return 1
+  fi
+  printf '%s' "$body"
+  return 0
 }
 
 api_post() {
@@ -390,14 +431,19 @@ api_ok_or_increment_failures() {
 
 verify_sonarr_connection() {
   local payload app_name
-  payload="$(api_get "/api/v3/system/status")" || {
-    log_line "ERROR" "Unable to reach Sonarr at $SONARR_URL"
+  if [[ -z "$SONARR_URL" ]]; then
+    log_line "ERROR" "SONARR_URL is not set. Edit the settings at the top of this script."
     exit 1
-  }
-
+  fi
+  SONARR_URL="${SONARR_URL%/}"
+  if [[ ! "$SONARR_URL" =~ ^https?:// ]]; then
+    log_line "ERROR" "SONARR_URL must be a full web address starting with http:// or https:// (you entered: ${SONARR_URL})"
+    exit 1
+  fi
+  payload="$(api_get "/api/v3/system/status" "checking the connection")" || exit 1
   app_name="$(jq_read "$payload" -r '.appName // empty')"
   if [[ "$app_name" != "Sonarr" ]]; then
-    log_line "ERROR" "Target is not Sonarr or API key is invalid"
+    log_line "ERROR" "Connected but the response was not from Sonarr — check SONARR_URL and SONARR_API_KEY in this script."
     exit 1
   fi
 }
@@ -551,7 +597,7 @@ single_non_english_language() {
 ###############################################################################
 
 fetch_series_payload() {
-  api_get "/api/v3/series"
+  api_get "/api/v3/series" "loading the series list"
 }
 
 filter_series_payload() {
@@ -569,17 +615,17 @@ filter_series_payload() {
 
 fetch_episode_files_for_series() {
   local series_id="$1"
-  api_get "/api/v3/episodefile?seriesId=${series_id}"
+  api_get "/api/v3/episodefile?seriesId=${series_id}" "loading episode files"
 }
 
 fetch_episode_metadata_for_series() {
   local series_id="$1"
-  api_get "/api/v3/episode?seriesId=${series_id}"
+  api_get "/api/v3/episode?seriesId=${series_id}" "loading episode metadata"
 }
 
 fetch_history_for_episode() {
   local episode_id="$1"
-  api_get "/api/v3/history?episodeId=${episode_id}&page=1&pageSize=100&sortKey=date&sortDirection=descending"
+  api_get "/api/v3/history?episodeId=${episode_id}&page=1&pageSize=100&sortKey=date&sortDirection=descending" "loading download history"
 }
 
 ###############################################################################
@@ -1467,7 +1513,7 @@ main() {
   fi
 
   if [[ -z "$SONARR_API_KEY" ]]; then
-    log_line "ERROR" "SONARR_API_KEY is required"
+    log_line "ERROR" "SONARR_API_KEY is not set. Edit the settings at the top of this script (Sonarr → Settings → General → API Key)."
     exit 1
   fi
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -1516,10 +1562,7 @@ main() {
   fi
 
   local series_payload filtered_series
-  series_payload="$(fetch_series_payload)" || {
-    log_line "ERROR" "Failed to fetch series list"
-    exit 1
-  }
+  series_payload="$(fetch_series_payload)" || exit 1
 
   if [[ "$FAST_DISCOVERY" == "1" ]]; then
     local discovery_output progress_lines discovery_json cand_len candidate_json

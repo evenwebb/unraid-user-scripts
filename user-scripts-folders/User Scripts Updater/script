@@ -1,53 +1,30 @@
 #!/bin/bash
 #
 # user-scripts-updater.sh
-# Updates Unraid User Scripts folders from GitHub ZIP (or local repo) while preserving local config edits.
+# Update User Scripts plugin folders from GitHub while keeping your config edits.
 #
 # Description:
-#   Designed for Unraid's "User Scripts" plugin folder structure. This script updates
-#   script folders from either:
-#   - a GitHub ZIP download (no git required), or
-#   - a local checkout directory
-#   and merges each script's editable config section so your customized variables
-#   survive upgrades. New variables added upstream are automatically included using
-#   upstream defaults.
+#   Downloads this repo (or uses a local copy), updates installed script folders, and merges EDIT FOR YOUR SETUP blocks.
 #
 # Usage:
-#   Run from the Unraid User Scripts plugin (foreground first, then schedule).
+#   Run from User Scripts (foreground first, then schedule).
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only (default), 0 = apply updates
 #
 # Configuration (edit script variables below):
-#   - SOURCE_MODE: "zip" (download) or "local" (use REPO_DIR)
-#   - ZIP_URL: GitHub ZIP URL when SOURCE_MODE="zip"
-#   - REPO_DIR: Path to a local checkout when SOURCE_MODE="local"
-#   - DEST_DIR: Unraid User Scripts plugin scripts dir
-#   - FETCH_UPDATES: 1 to fetch a fresh ZIP each run (recommended), 0 to reuse cache
-#   - DRY_RUN: 1 = show actions only, 0 = apply changes
-#   - BACKUP_DIR: Where to store backups of replaced scripts
-#   - WORK_DIR: Where to store ZIP cache and extraction
-#   - DOWNLOAD_CONNECT_TIMEOUT: connection timeout seconds for ZIP download
-#   - DOWNLOAD_MAX_TIME: max total seconds for ZIP download
-#   - CLEAR_CACHE: 1 = clear cached ZIP/extraction before running, 0 = reuse cache
-#   - INSTALL_MISSING: 1 = install missing folders, 0 = only update existing
-#   - RESET_CONFIG: 1 = reset to upstream default config (no merge), 0 = merge/preserve local values
+#   - SOURCE_MODE: zip or local
+#   - ZIP_URL / REPO_DIR / DEST_DIR
+#   - FETCH_UPDATES / CLEAR_CACHE / INSTALL_MISSING
+#   - DRY_RUN / BACKUP_DIR / WORK_DIR
+#   - RESET_CONFIG / CONFIG_CONFLICT_MODE / SHOW_CONFIG_DIFF
+#   - INCLUDE_FOLDERS / EXCLUDE_FOLDERS
+#   - DOWNLOAD_CONNECT_TIMEOUT / DOWNLOAD_MAX_TIME
 #
-# Notes:
-#   - This script expects source folders in: user-scripts-folders/
-#   - It preserves config for scripts that contain an editable config marker
-#     (`# EDIT FOR YOUR SETUP` — minor variations allowed).
-#   - Merge keeps the upstream EDIT block ordering and non-assignment lines (comments,
-#     spacing, typo fixes upstream). Assignments patch one variable name at a time:
-#     if your disk still has RADARR_URL=..., that whole line/group replaces upstream
-#     for the matching key only; upstream default is kept for vars you never set.
-#   - If a script has no marker / no recognizable EDIT region, destination is overwritten
-#     entirely from upstream.
-##   - CONFIG_CONFLICT_MODE: "keep-local" (default) or "use-upstream" for config merge conflicts
-#   - SHOW_CONFIG_DIFF: 1 = log added/removed config vars during merge, 0 = summary only
-#   - INCLUDE_FOLDERS: Only update folders matching these names (empty = all)
-#   - EXCLUDE_FOLDERS: Skip these folder names (empty = none excluded)
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

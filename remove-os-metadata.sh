@@ -1,49 +1,28 @@
 #!/bin/bash
 #
 # remove-os-metadata.sh
-# Removes macOS and Windows metadata files from configured paths
+# Remove macOS and Windows metadata files from media paths.
 #
 # Description:
-#   Finds and deletes macOS and Windows metadata files that are unnecessary on Unraid/Linux.
-#
-#   macOS files removed:
-#     - .DS_Store (folder view settings)
-#     - ._.DS_Store (AppleDouble companion files)
-#     - ._* (AppleDouble resource forks)
-#     - .AppleDouble (AppleDouble directories)
-#     - .LSOverride (Launch Services)
-#     - .Spotlight-V100 (Spotlight index directories)
-#     - .Trashes (Trash directories)
-#     - .TemporaryItems (Temporary items)
-#     - .fseventsd (File system events)
-#     - .VolumeIcon.icns (Custom volume icons)
-#     - .com.apple.timemachine.donotpresent (Time Machine markers)
-#     - .apdisk (AFP metadata)
-#
-#   Windows files removed:
-#     - Thumbs.db (thumbnail cache)
-#     - Thumbs.db:encryptable (encrypted thumbnail cache)
-#     - ehthumbs.db (Explorer thumbnail cache)
-#     - ehthumbs_vista.db (Vista thumbnail cache)
-#     - desktop.ini (folder customization)
+#   Deletes .DS_Store, Thumbs.db, resource forks, etc. Defaults to dry run.
 #
 # Usage:
 #   ./remove-os-metadata.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only (default), 0 = delete files
 #
-# Configuration:
-#   - SEARCH_PATHS: Directories to search (edit for your shares)
-#   - MAX_DEPTH: Maximum find depth (0 = unlimited, default 9999)
-#   - DELETE_MACOS_METADATA: "true" or "false" (default: true)
-#   - DELETE_WINDOWS_METADATA: "true" or "false" (default: true)
-#   - INCLUDE_RESOURCE_FORKS: 1 to delete ._* files (default: 0, can be large)
-#   - DRY_RUN: 1 = preview only, 0 = delete matches
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+# Configuration (edit script variables below):
+#   - SEARCH_PATHS: directories to scan
+#   - MAX_DEPTH: find depth limit
+#   - DELETE_MACOS_METADATA / DELETE_WINDOWS_METADATA / INCLUDE_RESOURCE_FORKS
+#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

@@ -1,38 +1,30 @@
 #!/bin/bash
 #
 # flash-backup.sh
-# Creates a compressed backup of the Unraid boot flash drive to the array
+# Backup the Unraid boot flash drive to compressed archives on the array.
 #
 # Description:
-#   Backs up /boot (the Unraid USB flash drive) to a configurable destination
-#   on the array. The flash drive contains your Unraid license (.key file),
-#   disk assignments (super.dat), Docker templates, VM XML, and all system
-#   configuration. If the flash drive fails, this backup is essential for
-#   recovery.
-#
-#   - Creates a compressed tar archive of /boot
-#   - Rotates old backups (keeps last KEEP_COUNT copies)
-#   - Optionally verifies backup integrity after creation
-#   - Optionally excludes large/transient paths (logs, previous backups)
-#   - Reports backup size and duration via notification
+#   Rotates old backups and verifies archive integrity.
 #
 # Usage:
 #   ./flash-backup.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - BACKUP_DEST: Directory for backup archives (must be on array/cache)
-#   - KEEP_COUNT: Number of backups to retain (0 = unlimited)
-#   - COMPRESSION: gzip, bzip2, xz, or none
-#   - VERIFY_BACKUP: 1 = verify archive integrity after creation, 0 = skip
-#   - EXCLUDE_LOGS: 1 = exclude /boot/logs (can be large), 0 = include
-#   - EXCLUDE_PREVIOUS_BACKUPS: 1 = exclude existing backups from archive, 0 = skip
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - MAX_BACKUP_SIZE_MB: Warn if backup exceeds this size (0 = no limit)
+#   - BACKUP_DEST: backup directory on array
+#   - KEEP_COUNT: number of backups to retain
+#   - COMPRESSION: archive format (gz, xz, etc.)
+#   - VERIFY_BACKUP: 1 = test archive after creation
+#   - EXCLUDE_LOGS / EXCLUDE_PREVIOUS_BACKUPS: tarball exclusions
+#   - MAX_BACKUP_SIZE_MB: abort if backup exceeds size
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - LOG_FILE: optional log file
+#
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

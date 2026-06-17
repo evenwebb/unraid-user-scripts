@@ -1,23 +1,22 @@
 #!/bin/bash
 #
 # delete-dangling-images.sh
-# Removes Docker images that are untagged (dangling) to free space in docker.img
+# Remove untagged (dangling) Docker images to free docker.img space.
 #
 # Description:
-#   Deletes all Docker images with no tag (intermediate or leftover build images).
-#   Reduces docker.img size. Safe to run; only removes unreferenced images.
+#   Only removes dangling images — not images in use by containers.
 #
 # Usage:
 #   ./delete-dangling-images.sh
 #
-# Configuration:
-#   None required.
+# Configuration (edit script variables below):
+#   - No user settings — runs docker rmi on dangling images
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

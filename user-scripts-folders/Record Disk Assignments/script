@@ -1,26 +1,25 @@
 #!/bin/bash
 #
 # record-disk-assignments.sh
-# Records current Unraid disk assignments to a text file on the flash drive
+# Write current Unraid disk assignments to a text (and optional JSON) file.
 #
 # Description:
-#   Reads /var/local/emhttp/disks.ini and writes a human-readable summary
-#   to /boot/config/DISK_ASSIGNMENTS.txt. Useful for backup or documentation
-#   (if not using CA Backup plugin which does this automatically).
+#   Useful before hardware changes or array rebuilds.
 #
 # Usage:
 #   ./record-disk-assignments.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - DISKS_INI: Path to Unraid disks.ini (default /var/local/emhttp/disks.ini)
-#   - OUTPUT_FILE: Output path (default /boot/config/DISK_ASSIGNMENTS.txt)
+# Configuration (edit script variables below):
+#   - DISKS_INI: path to disks.ini
+#   - OUTPUT_FILE: text output path
+#   - JSON_OUTPUT: 1 = also write .json
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - JSON_OUTPUT: 1 = also write JSON output file (OUTPUT_FILE.json)
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

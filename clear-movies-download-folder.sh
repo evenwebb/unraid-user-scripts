@@ -1,27 +1,28 @@
 #!/bin/bash
 #
 # clear-movies-download-folder.sh
-# Empties the movies download directory and optionally sends a notification
+# Empty the movies download folder (with optional age filter).
 #
 # Description:
-#   Counts and measures the movies download folder, deletes all contents,
-#   then prints a summary. Optionally sends an Unraid notification with the summary.
+#   Deletes files under DIR_PATH. Use DRY_RUN first on production systems.
 #
 # Usage:
 #   ./clear-movies-download-folder.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only, 0 = delete files
 #
-# Configuration:
-#   - DIR_PATH: Path to the movies download folder to clear
-#   - DRY_RUN: 1 = preview only, 0 = delete contents
-#   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = skip notification)
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+# Configuration (edit script variables below):
+#   - DIR_PATH: folder to clear
+#   - MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)
+#   - DRY_RUN: 1 = preview only, 0 = delete files
+#   - NOTIFY_SCRIPT: optional completion notify
+#   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - MIN_AGE_MINUTES: Skip files modified less than N minutes ago (0 = no minimum)
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

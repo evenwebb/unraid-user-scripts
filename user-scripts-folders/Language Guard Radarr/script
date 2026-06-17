@@ -1,50 +1,33 @@
 #!/bin/bash
 #
 # language-guard-radarr.sh
-# Audits Radarr movie files for acceptable audio languages, then blocklists,
-# deletes, and re-searches bad releases.
+# Audit Radarr movie audio languages; fix bad releases via blocklist, delete, and search.
 #
 # Description:
-#   Validates imported Radarr movie files using Radarr media-language metadata.
-#   For English-original movies, requires at least one English audio track.
-#   For non-English-original movies, allows either English or the original language.
-#   When a file is invalid, the script:
-#   - records a permanent script-level blacklist entry
-#   - attempts a Radarr blacklist for the original release when history exists
-#   - deletes the bad movie file through Radarr
-#   - triggers a targeted MoviesSearch replacement
+#   English-original movies need English audio; other originals need English or original language.
+#   Defaults to dry run — set DRY_RUN=0 for live remediation.
 #
 # Usage:
-#   ./language-guard-radarr.sh              # Dry run by default
-#   Set DRY_RUN=0 in the script for live runs
+#   ./language-guard-radarr.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only (default), 0 = delete/blocklist/search
 #
 # Configuration (edit script variables below):
-#   - RADARR_URL: Radarr base URL
-#   - RADARR_API_KEY: Radarr API key
-#   - DRY_RUN: 1 = log only, no deletes/blocklists/searches
-#   - DEBUG: 1 = extra logging, 0 = normal
-#   - USE_FFPROBE_FALLBACK: 1 = use ffprobe when Radarr metadata is missing
-#   - LOG_FILE: Append logs to this file (empty = stdout only)
-#   - STATE_FILE: Persistent JSON state file (blacklist entries and stats)
-#   - LOCK_FILE: Lock file path to prevent concurrent runs
-#   - RATE_LIMIT_SECONDS: Seconds between Radarr API actions
-#   - MAX_ACTIONS_PER_RUN: Cap actions per run (safety limit)
-#   - SEARCH_COOLDOWN_DAYS: Minimum days between re-searching the same movie
-#   - MOVIE_ID: Optional single movie ID (test targeting)
-#   - MOVIE_FILTER: Optional substring filter on movie title (batch targeting)
-#   - CLEAR_BLACKLIST: 1 = clear script blacklist in STATE_FILE
-#   - BLACKLIST_DUMP: 1 = print blacklist entries and exit
-#   - STATS_DUMP: 1 = print run stats and exit
-#   - FAST_DISCOVERY: 1 = faster embedded-Python discovery, 0 = slower shell/jq path
+#   - RADARR_URL / RADARR_API_KEY: Radarr connection
+#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
+#   - LOG_FILE / STATE_FILE / LOCK_FILE: logging, state, and lock
+#   - RATE_LIMIT_SECONDS / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
+#   - MOVIE_ID / MOVIE_FILTER: optional targeting
+#   - CLEAR_BLACKLIST / BLACKLIST_DUMP / STATS_DUMP: maintenance modes
+#   - FAST_DISCOVERY: 1 = faster Python discovery (recommended)
 #
-# Logging (Unraid-friendly):
-#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
-#   - State is persisted in STATE_FILE to track blacklist entries and run stats.
-#   - When LOG_FILE is set, each log line is also appended to that file.
+# Requires: curl, jq, python3 (ffprobe optional if USE_FFPROBE_FALLBACK=1)
+#
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-# 
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail
@@ -113,6 +96,7 @@ log() {
 }
 log_err() {
     local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
 }
@@ -131,6 +115,45 @@ debug() {
   if [[ "$DEBUG" == "1" ]]; then
     log_line "DEBUG" "$*"
   fi
+}
+
+_friendly_curl_err() {
+  local msg="$1"
+  msg="${msg#curl: }"
+  if [[ "$msg" == *"Could not resolve host"* ]]; then
+    echo "The server name could not be found — check the IP address or hostname in the script."
+  elif [[ "$msg" == *"Connection refused"* ]]; then
+    echo "Connection refused — is Radarr running and is the port number correct?"
+  elif [[ "$msg" == *"Failed to connect"* ]]; then
+    echo "Could not connect — check that Radarr is running and the URL is correct."
+  elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
+    echo "The connection timed out — check the URL and network."
+  elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
+    echo "Login was rejected — wrong API key."
+  else
+    echo "$msg"
+  fi
+}
+
+_log_service_failure() {
+  local service="$1" task="$2" url="$3" code="$4" body="$5" curl_err="${6:-}" fix_hint="${7:-Check the URL and API key in this script.}"
+  if [[ -n "$curl_err" ]]; then
+    log_line "ERROR" "Could not reach ${service} while ${task}. $(_friendly_curl_err "$curl_err") ${fix_hint}"
+    return
+  fi
+  case "$code" in
+    401) log_line "ERROR" "Wrong API key for ${service} while ${task}. ${fix_hint}" ;;
+    403) log_line "ERROR" "${service} refused access while ${task}. ${fix_hint}" ;;
+    404) log_line "ERROR" "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script — it should look like http://your-server:7878 with no extra path." ;;
+    000|"") log_line "ERROR" "Could not connect to ${service} at ${url} while ${task}. Check RADARR_URL, that Radarr is running, and that the port is correct." ;;
+    *)
+      if [[ -n "$body" ]] && ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+        log_line "ERROR" "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check RADARR_URL in this script."
+      else
+        log_line "ERROR" "${service} returned an error while ${task}. ${fix_hint}"
+      fi
+      ;;
+  esac
 }
 
 # Run jq with JSON from a bash variable via pipe only (never <<< here-strings on JSON:
@@ -330,10 +353,28 @@ dump_stats_state() {
 
 api_get() {
   local path="$1"
-  curl -sS -m 60 \
+  local task="${2:-talking to Radarr}"
+  local url="${RADARR_URL}${path}"
+  local resp code body curl_err fix_hint
+  fix_hint="Check RADARR_URL and RADARR_API_KEY in this script (Radarr → Settings → General → API Key)."
+  curl_err=$(mktemp) || return 1
+  resp=$(curl -sS -m 60 -w "\n%{http_code}" \
     -H "X-Api-Key: $RADARR_API_KEY" \
     -H "Accept: application/json" \
-    "$RADARR_URL$path"
+    "$url" 2>"$curl_err") || {
+    _log_service_failure "Radarr" "$task" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+    rm -f "$curl_err"
+    return 1
+  }
+  rm -f "$curl_err"
+  code=$(echo "$resp" | tail -n1)
+  body=$(echo "$resp" | sed '$d')
+  if [[ "$code" != "200" ]] || ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+    _log_service_failure "Radarr" "$task" "$RADARR_URL" "$code" "$body" "" "$fix_hint"
+    return 1
+  fi
+  printf '%s' "$body"
+  return 0
 }
 
 api_delete_status() {
@@ -364,15 +405,21 @@ api_post_status() {
 }
 
 verify_radarr_connection() {
-  local payload app_name
-  payload="$(api_get "/api/v3/system/status")" || {
-    log_line "ERROR" "Unable to reach Radarr at $RADARR_URL"
+  local payload app_name fix_hint
+  fix_hint="Check RADARR_URL and RADARR_API_KEY in this script (Radarr → Settings → General → API Key)."
+  if [[ -z "$RADARR_URL" ]]; then
+    log_line "ERROR" "RADARR_URL is not set. Edit the settings at the top of this script."
     exit 1
-  }
-
+  fi
+  RADARR_URL="${RADARR_URL%/}"
+  if [[ ! "$RADARR_URL" =~ ^https?:// ]]; then
+    log_line "ERROR" "RADARR_URL must be a full web address starting with http:// or https:// (you entered: ${RADARR_URL})"
+    exit 1
+  fi
+  payload="$(api_get "/api/v3/system/status" "checking the connection")" || exit 1
   app_name="$(jq_read "$payload" -r '.appName // empty')"
   if [[ "$app_name" != "Radarr" ]]; then
-    log_line "ERROR" "Target is not Radarr or API key is invalid"
+    log_line "ERROR" "Connected but the response was not from Radarr — check RADARR_URL and RADARR_API_KEY in this script."
     exit 1
   fi
 }
@@ -513,7 +560,7 @@ single_non_english_language() {
 ###############################################################################
 
 fetch_movies_payload() {
-  api_get "/api/v3/movie"
+  api_get "/api/v3/movie" "loading the movie list"
 }
 
 filter_movies_payload() {
@@ -530,7 +577,7 @@ filter_movies_payload() {
 }
 
 fetch_history_for_movie() {
-  api_get "/api/v3/history?page=1&pageSize=1000&sortKey=date&sortDirection=descending"
+  api_get "/api/v3/history?page=1&pageSize=1000&sortKey=date&sortDirection=descending" "loading download history"
 }
 
 epoch_now() {
@@ -1223,7 +1270,7 @@ main() {
   fi
 
   if [[ -z "$RADARR_API_KEY" ]]; then
-    log_line "ERROR" "RADARR_API_KEY is required"
+    log_line "ERROR" "RADARR_API_KEY is not set. Edit the settings at the top of this script (Radarr → Settings → General → API Key)."
     exit 1
   fi
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -1271,10 +1318,7 @@ main() {
   fi
 
   local movies_payload filtered_movies
-  movies_payload="$(fetch_movies_payload)" || {
-    log_line "ERROR" "Failed to fetch movie list"
-    exit 1
-  }
+  movies_payload="$(fetch_movies_payload)" || exit 1
 
   if [[ "$FAST_DISCOVERY" == "1" ]]; then
     local discovery_json candidate_json cand_len

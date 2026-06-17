@@ -1,28 +1,28 @@
 #!/bin/bash
 #
 # out-of-memory-errors.sh
-# Checks syslog for OOM (Out of Memory) events and sends an Unraid notification if found
+# Alert when new Out-of-Memory (OOM) events appear in syslog.
 #
 # Description:
-#   Greps the system log for "Out of memory" messages. If any are found,
-#   sends an alert via the Unraid dynamix notification system. Schedule
-#   (e.g. hourly) to get notified when the system has hit OOM.
+#   Tracks state so repeat alerts only fire for new OOM kills.
 #
 # Usage:
 #   ./out-of-memory-errors.sh
+#   Schedule hourly.
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - SYSLOG_PATH: Path to syslog (default /var/log/syslog)
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+# Configuration (edit script variables below):
+#   - SYSLOG_PATH: syslog file to scan
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - SHOW_KILLED_PROCESSES: 1 = include killed process names
+#   - ENABLE_STATE_TRACKING: 1 = persist last-seen count
+#   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - SHOW_KILLED_PROCESSES: 1 = extract and show which processes were killed
-#   - ENABLE_STATE_TRACKING: 1 = track OOM count in state file, only notify on increase
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

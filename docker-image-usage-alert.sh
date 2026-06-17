@@ -1,40 +1,27 @@
 #!/bin/bash
 #
 # docker-image-usage-alert.sh
-# Monitors Unraid docker.img usage and alerts before it fills up
+# Alert when docker.img usage crosses warning or critical thresholds.
 #
 # Description:
-#   Tracks docker.img (or Docker directory) disk usage percentage. Sends
-#   Unraid notifications at configurable warning and critical thresholds.
-#   Uses a state file so alerts only fire on threshold crossing, not every
-#   scheduled run. Optionally reports the largest containers and volumes.
-#
-#   On Unraid the Docker storage driver is typically btrfs on a loopback
-#   image; this script queries the live filesystem usage so it works
-#   regardless of the backing store (btrfs, overlay2, xfs).
+#   Notifies once per threshold crossing; resets when usage drops.
 #
 # Usage:
 #   ./docker-image-usage-alert.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - DOCKER_PATH: Path to Docker data (default /var/lib/docker on Unraid)
-#   - WARNING_THRESHOLD_PCT: Notify when usage reaches this % (default 70)
-#   - CRITICAL_THRESHOLD_PCT: Notify when usage reaches this % (default 85)
-#   - SHOW_LARGEST_CONTAINERS: 1 = show top N containers by size, 0 = skip
-#   - LARGEST_COUNT: How many containers to show (default 5)
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - STATE_FILE: Tracks last-reported threshold level for escalation only
+#   - DOCKER_PATH: docker.img mount path
+#   - WARNING_THRESHOLD_PCT / CRITICAL_THRESHOLD_PCT: alert levels
+#   - SHOW_LARGEST_CONTAINERS / LARGEST_COUNT: optional container breakdown
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Notification behaviour:
-#   - Below WARNING:  no notification
-#   - WARNING reached: one-time warning notification
-#   - CRITICAL reached: one-time critical notification (escalates over warning)
-#   - Dropped below threshold: state reset, will re-notify on next crossing
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

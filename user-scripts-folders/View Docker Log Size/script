@@ -1,26 +1,26 @@
 #!/bin/bash
 #
 # view-docker-log-size.sh
-# Displays sizes of Docker container log files to diagnose docker.img growth
+# List Docker container log file sizes (largest first).
 #
 # Description:
-#   Lists Docker container log files sorted by size. Use to see if runaway
-#   logging is filling docker.img before running clean-docker-log-size.sh.
+#   Helps find logs filling docker.img.
 #
 # Usage:
 #   ./view-docker-log-size.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - DOCKER_CONTAINERS_PATH: Path to Docker container data (default Unraid)
-#   - HEAD_COUNT: Number of lines to show (default 60)
+#   - DOCKER_CONTAINERS_PATH: container logs directory
+#   - HEAD_COUNT: number of lines to show
+#   - PER_CONTAINER_BREAKDOWN: 1 = group by container name
+#   - SHOW_TREND / TREND_FILE: optional size trend tracking
 #
-# Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - PER_CONTAINER_BREAKDOWN: 1 = group log sizes by container name, 0 = raw file list
-#   - SHOW_TREND: 1 = show size deltas from previous run (requires TREND_FILE)
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

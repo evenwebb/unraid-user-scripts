@@ -1,39 +1,27 @@
 #!/bin/bash
 #
 # parity-check-monitor.sh
-# Monitors Unraid parity check progress and notifies on milestones and completion
+# Monitor parity check progress and notify on milestones and completion.
 #
 # Description:
-#   Checks if a parity check / sync is currently running on the Unraid array.
-#   When active, reports progress percentage, estimated finish time, current
-#   speed, and any errors found. Sends notifications at configurable progress
-#   milestones and on completion (with duration and error summary).
-#
-#   Designed to run on a schedule (e.g. hourly) while a parity check is active.
-#   When no check is running, exits silently unless NOTIFY_ON_IDLE is enabled.
+#   Run on a schedule while a parity check is active. Exits quietly when idle.
 #
 # Usage:
 #   ./parity-check-monitor.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - VAR_INI: Path to Unraid emhttp var.ini (default: /var/local/emhttp/var.ini)
-#   - NOTIFY_ON_START: 1 = notify when a new parity check is detected
-#   - NOTIFY_ON_PROGRESS: 1 = notify at progress milestones
-#   - PROGRESS_MILESTONE_PCT: Notify every N percent (e.g. 25 = at 25%, 50%, 75%)
-#   - NOTIFY_ON_COMPLETION: 1 = notify when parity check finishes
-#   - NOTIFY_ON_ERRORS: 1 = notify if errors were found
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - STATE_FILE: Tracks last-seen check to detect start/completion transitions
+#   - VAR_INI: Unraid emhttp var.ini path
+#   - NOTIFY_ON_START / NOTIFY_ON_PROGRESS / NOTIFY_ON_COMPLETION / NOTIFY_ON_ERRORS
+#   - PROGRESS_MILESTONE_PCT: notify every N percent
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Notes:
-#   - Unraid exposes parity check state through /var/local/emhttp/var.ini
-#     (the mdState and mdResync keys) which this script parses.
-#   - Speed and ETA are read from the syslog if the ini values are stale.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

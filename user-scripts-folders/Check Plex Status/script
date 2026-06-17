@@ -1,32 +1,30 @@
 #!/bin/bash
 #
 # check-plex-status.sh
-# Monitors Plex Docker container and web UI, restarts container if UI is unreachable
+# Check Plex container and web UI; restart if the UI is down.
 #
 # Description:
-#   Checks if the Plex Docker container is running and if the web UI is accessible.
-#   If the container is running but the UI does not respond, restarts the container.
-#   Optional: send an Unraid notification when a restart occurs (Settings → Notifications).
+#   Restarts the Plex Docker container when it runs but the web UI does not respond.
 #
 # Usage:
 #   ./check-plex-status.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - PLEX_CONTAINER_NAME: Docker container name for Plex
-#   - PLEX_WEB_UI: Full URL to Plex web UI (used for connectivity check)
-#   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = no notification on restart)
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - RESTART_ONLY_IF_AUTOSTART: 1 = only restart if container has restart policy always/unless-stopped (skips when policy is "no")
-#   - CONNECT_TIMEOUT: Seconds to wait when checking Plex web UI
-#   - MAX_TIME: Max seconds for Plex web UI check request
+# Configuration (edit script variables below):
+#   - PLEX_CONTAINER_NAME: Docker container name
+#   - PLEX_WEB_UI: URL for health check
+#   - NOTIFY_SCRIPT: dynamix notify path (empty = no notify)
+#   - LOG_FILE: optional log file (empty = stdout only)
+#   - RESTART_ONLY_IF_AUTOSTART: 1 = skip restart if policy is no
+#   - NOTIFY_ON_RECOVERY: 1 = notify when Plex recovers
+#   - MAX_RESTARTS_PER_DAY: daily restart cap (0 = unlimited)
+#   - CONNECT_TIMEOUT / MAX_TIME: curl timeouts for UI check
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - NOTIFY_ON_RECOVERY: 1 = notify when Plex recovers after being down
-#   - MAX_RESTARTS_PER_DAY: Maximum container restarts per calendar day (0 = unlimited)
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

@@ -1,31 +1,27 @@
 #!/bin/bash
 #
 # check-smart-status.sh
-# Checks SMART health status of disks and sends an Unraid notification if any fail
+# Alert when any disk fails SMART health checks.
 #
 # Description:
-#   Runs smartctl -H on configured disks (or auto-detects via smartctl --scan).
-#   If any disk reports SMART health FAILED, sends an alert via Unraid dynamix.
-#   Schedule (e.g. daily) to get notified of disk problems early.
+#   Schedule daily or weekly. Sends Unraid notification if a disk reports failed SMART.
 #
 # Usage:
 #   ./check-smart-status.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - DISKS: Array of disk devices (e.g. /dev/sda /dev/sdb). Empty = auto-detect.
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
+#   - DISKS: disk list (empty = auto-detect)
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - LOG_FILE: optional log file (empty = stdout only)
 #
-# Logging (Unraid-friendly):
-#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
-#   - When LOG_FILE is set, each log line is also appended to that file.
-#   - LOG_FILE is validated: rejects paths with "..", starting with "-", or newlines.
+# Requires: root (run with sudo)
 #
-# Requires: root (smartctl needs root for most devices)
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

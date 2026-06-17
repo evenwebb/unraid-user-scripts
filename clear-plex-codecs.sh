@@ -1,24 +1,23 @@
 #!/bin/bash
 #
 # clear-plex-codecs.sh
-# Deletes Plex Media Server codec cache to resolve codec or transcoding issues
+# Delete Plex codec cache (Plex re-downloads as needed).
 #
 # Description:
-#   Removes all contents of the Plex codecs directory. Plex will re-download
-#   codecs as needed. Use when troubleshooting transcoding or codec errors.
+#   Frees space under PLEX_CODECS_PATH. Plex may briefly re-transcode after clearing.
 #
 # Usage:
 #   ./clear-plex-codecs.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - PLEX_PATH: Host path to Plex appdata (Docker /config mapping; contains Library/…)
-#   - PLEX_CODECS_PATH: Derived from PLEX_PATH unless you set it explicitly below
+# Configuration (edit script variables below):
+#   - PLEX_CODECS_PATH: Plex codec cache directory
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

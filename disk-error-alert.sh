@@ -1,39 +1,30 @@
 #!/bin/bash
 #
 # disk-error-alert.sh
-# Checks syslog for md/storage errors and sends an Unraid notification if found
+# Alert on new md/storage errors in syslog.
 #
 # Description:
-#   Greps the system log for md (RAID) and storage error messages. Counts
-#   unique matching lines (a line matching several patterns counts once).
-#   Sends an alert only when that total has increased since the last run
-#   (state file beside this script). Stable counts or decreases (e.g. log
-#   rotation) do not re-notify. State is updated only after notify succeeds.
+#   Counts unique error lines and notifies only when the count increases.
 #
 # Usage:
 #   ./disk-error-alert.sh
+#   Schedule hourly or daily.
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - SYSLOG_PATH: Path to syslog (default /var/log/syslog; Unraid uses this)
-#   - NOTIFY_SCRIPT: Unraid dynamix notify script path
-#   - ERROR_PATTERNS: Grep -E patterns for md/storage errors (edit to add/remove)
-#   - EXCLUDE_PATTERNS: Lines matching these are excluded (avoids false positives)
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - STATE_FILE: Last-seen error total for increase-only alerts (see below)
+#   - SYSLOG_PATH: syslog file to scan
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - ERROR_PATTERNS / EXCLUDE_PATTERNS: match filters
+#   - ENABLE_PER_DISK_TRACKING: 1 = track per-disk IDs
+#   - ENABLE_SMART_CORRELATION: 1 = cross-check SMART status
+#   - SMARTCTL_PATH: smartctl binary path
+#   - LOG_FILE / STATE_FILE: optional logging and state
 #
-# Logging (Unraid-friendly):
-#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
-#   - When LOG_FILE is set, each log line is also appended to that file.
-#   - LOG_FILE path is validated: rejects "..", leading "-", or newlines.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
-# Unraid notes: Syslog is in RAM by default (clears on reboot). Enable Settings >
-# Syslog Server (e.g. Mirror to flash) for persistent logs across reboots.
-##   - ENABLE_PER_DISK_TRACKING: 1 = extract disk IDs (sdX, mdX) and track per-disk counts
-#   - ENABLE_SMART_CORRELATION: 1 = cross-reference disk errors with SMART data (requires smartctl)
-
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

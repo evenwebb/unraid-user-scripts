@@ -1,28 +1,28 @@
 #!/bin/bash
 #
 # clean-torrent-junk.sh
-# Removes torrent download junk files and empty directories
+# Remove torrent download junk files and empty folders.
 #
 # Description:
-#   Cleans up common junk files left by torrent downloads (nfo, par2, samples,
-#   RAR splits, etc.) and removes empty directories after cleanup.
+#   Same behaviour as clean-nzb-junk.sh for torrent download paths.
 #
 # Usage:
-#   ./clean-torrent-junk.sh              # Run in production mode (deletes files)
-#   Set DRY_RUN=1 in the script for dry-run mode (no deletions)
+#   ./clean-torrent-junk.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only, 0 = delete files
 #
 # Configuration (edit script variables below):
-#   - FOLDERS: Directories to clean
-#   - JUNK_EXTENSIONS: File patterns to remove
-#   - DRY_RUN: 1 for dry-run (no deletions), 0 for production
+#   - FOLDERS: directories to clean
+#   - JUNK_EXTENSIONS: filename patterns to remove
+#   - MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)
+#   - EXCLUDE_PATTERNS: globs to keep
+#   - DRY_RUN: 1 = preview only, 0 = delete files
 #
-# Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - MIN_AGE_MINUTES: Skip files modified less than N minutes ago (0 = no minimum)
-#   - EXCLUDE_PATTERNS: Glob patterns to exclude from deletion (e.g. "*.nfo")
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

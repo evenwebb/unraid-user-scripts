@@ -1,34 +1,32 @@
 #!/bin/bash
 #
 # apply-unraid-perms.sh
-# Applies Unraid-style "new permissions" (Docker-safe) to array and appdata paths
+# Apply Unraid-style permissions (nobody:users, Docker-safe) to configured paths.
 #
 # Description:
-#   Recursively sets chmod/chown on configured paths to nobody:users with
-#   permissions suitable for Unraid shares and Docker. Run after adding
-#   new files or when permission issues occur.
-#   WARNING: Can run for a long time on large arrays; ensure PERM_PATHS are correct.
+#   Recursively chmod/chown paths for Unraid shares and Docker.
+#   Can take a long time on large arrays — check PERM_PATHS before running.
 #
 # Usage:
 #   ./apply-unraid-perms.sh
-#   Set DRY_RUN=1 in script to preview without making changes.
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only, 0 = apply changes
 #
-# Configuration:
-#   - PERM_PATHS: List of directories to process (edit for your mount points)
-#   - OWNER_GROUP: owner:group for chown (default: nobody:users)
-#   - CHMOD_FLAGS: chmod flags (default: Docker-safe, dirs 0777, files 0666)
-#   - DRY_RUN: 1 = log only, no chmod/chown (default: 0)
+# Configuration (edit script variables below):
+#   - PERM_PATHS: directories to process
+#   - OWNER_GROUP: chown target (default nobody:users)
+#   - CHMOD_FLAGS: chmod flags (Docker-safe defaults)
+#   - EXCLUDE_PATHS: globs to skip inside PERM_PATHS
+#   - PARALLEL_JOBS: parallel xargs jobs (0 = sequential)
+#   - DRY_RUN: 1 = preview only, 0 = apply changes
 #
 # Requires: root (run with sudo)
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-# Note: Dangerous paths (/, /etc, /boot, etc.) are blocked. Overlapping paths
-#       are deduplicated (e.g. /mnt/user and /mnt/user/Media -> only /mnt/user).
-##   - EXCLUDE_PATHS: Path globs to skip within PERM_PATHS (e.g. "*/Downloads/*")
-#   - PARALLEL_JOBS: Number of parallel jobs for xargs -P (0 = sequential chmod -R)
-
-# Author: https://github.com/evenwebb
-# License: GPL-3.0
 #
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
+# Author: https://github.com/evenwebb
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

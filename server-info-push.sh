@@ -1,38 +1,27 @@
 #!/bin/bash
 #
 # server-info-push.sh
-# Sends a stylish status summary (space, temps, RAM, UPS, containers) via Unraid dynamix notify
+# Send a server status summary via Unraid dynamix notify.
 #
 # Description:
-#   Gathers array/cache/appdata free space, CPU temperatures, RAM usage,
-#   uptime, optional UPS status, running VMs, and running Docker containers
-#   (Docker section hidden if Docker is not started), then sends a formatted
-#   notification via Unraid when enabled.
+#   Reports storage, temps, RAM, uptime, VMs, containers, and optional UPS.
 #
 # Usage:
 #   ./server-info-push.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - PUSH_NOTIFICATIONS: 0 = echo only, 1 = Unraid dynamix notify
-#   - NOTIFY_SCRIPT: Path to dynamix notify when PUSH_NOTIFICATIONS=1 (empty = print summary only)
-#   - ARRAY_MOUNT: Path for df (free space report)
-#   - CACHE_MOUNT: Path for df (free space report)
-#   - APPDATA_MOUNT: Path for df (free space report)
-#   - INCLUDE_UPS: 1 to include UPS status if available (default: 1)
-#   - NUT_UPS_NAME: NUT plugin UPS name for upsc (e.g. "ups@localhost", default: auto-detect)
+# Configuration (edit script variables below):
+#   - PUSH_NOTIFICATIONS: 1 = send notify, 0 = print only
+#   - NOTIFY_SCRIPT: dynamix notify path
+#   - ARRAY_MOUNT / CACHE_MOUNT / APPDATA_MOUNT
+#   - INCLUDE_UPS / NUT_UPS_NAME
+#   - SHOW_STORAGE / SHOW_TEMPS / SHOW_MEMORY / SHOW_UPTIME_LOAD / SHOW_VMS / SHOW_CONTAINERS / SHOW_UPS
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
-##   - SHOW_STORAGE: 1 = show storage section, 0 = hide
-#   - SHOW_TEMPS: 1 = show temperatures section, 0 = hide
-#   - SHOW_MEMORY: 1 = show memory section, 0 = hide
-#   - SHOW_UPTIME_LOAD: 1 = show uptime/load section, 0 = hide
-#   - SHOW_VMS: 1 = show VMs section, 0 = hide
-#   - SHOW_CONTAINERS: 1 = show containers section, 0 = hide
-#   - SHOW_UPS: 1 = show UPS section, 0 = hide
-
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
+#
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

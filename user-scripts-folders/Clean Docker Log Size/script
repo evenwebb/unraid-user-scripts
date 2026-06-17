@@ -1,26 +1,24 @@
 #!/bin/bash
 #
 # clean-docker-log-size.sh
-# Truncates Docker container log files to free space in docker.img
+# Truncate Docker container logs to free space in docker.img.
 #
 # Description:
-#   Finds all .log files under Docker's container directory, shows sizes before
-#   cleanup, truncates them to zero, then shows sizes after. Useful when
-#   docker.img is filling up due to runaway container logging.
+#   Shows before/after sizes. Safe for running containers.
 #
 # Usage:
 #   ./clean-docker-log-size.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
 #
-# Configuration:
-#   - DOCKER_CONTAINERS_PATH: Path to Docker container data (default Unraid location)
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - HEAD_COUNT: Number of log entries to show in before/after listing
+# Configuration (edit script variables below):
+#   - DOCKER_CONTAINERS_PATH: path to container log directory
+#   - LOG_FILE: optional log file
 #
-# Note: Output goes to stdout; Unraid User Scripts captures it in the GUI.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail

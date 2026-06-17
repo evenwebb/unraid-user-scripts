@@ -1,48 +1,30 @@
 #!/bin/bash
 #
 # update-radarr-profiles.sh
-# Updates Radarr quality profiles by year window: recent years → premium profile, older years → default profile
+# Assign Radarr quality profiles by movie year window.
 #
 # Description:
-#   For movies in the premium window (current year back PREMIUM_YEARS_BACK years):
-#   sets quality profile to a "premium" profile (e.g. higher quality).
-#   For movies older than the premium window: reverts from that profile back to
-#   the default. Run periodically (e.g. monthly) or after adding many movies.
+#   Recent years → premium profile; older years → default profile.
 #
 # Usage:
-#   ./update-radarr-profiles.sh              # Live run
-#   Set DRY_RUN=1 in the script for dry run (no changes)
+#   ./update-radarr-profiles.sh
+#   Edit variables in EDIT FOR YOUR SETUP below.
+#   DRY_RUN: 1 = preview only, 0 = update Radarr
 #
 # Configuration (edit script variables below):
-#   - RADARR_URL: Radarr base URL
-#   - RADARR_API_KEY: Radarr API key
-#   - CURRENT_YEAR_PROFILE_ID: Quality profile ID for premium window movies
-#   - OLDER_MOVIES_PROFILE_ID: Quality profile ID for older movies
-#   - PROCESS_CURRENT_YEAR: Apply premium profile to movies in the premium window ("true"/"false")
-#   - PROCESS_PREVIOUS_YEAR: Revert premium profile for movies older than the premium window ("true"/"false")
-#   - PREMIUM_YEARS_BACK: Number of years back (0=current year only, 1=current+previous, etc.)
-#   - CUSTOM_CURRENT_YEAR: Optional override for "current year" (empty = auto-detect)
-#   - CUSTOM_PREVIOUS_YEAR: Optional override for premium window start year (empty = auto-detect)
-#   - DRY_RUN: 1 = dry run (no API changes), 0 = live
-#   - LOG_FILE: Optional; when set, append logs here (empty = stdout only)
-#   - CURL_TIMEOUT: Seconds for curl requests (default 30)
-#   - RATE_LIMIT_DELAY: Seconds between API updates (default 1)
-#   - RADARR_VERIFY_SSL: 1 = verify (default), 0 = skip (self-signed certs)
-#   - MAX_UPDATES_PER_RUN: Cap updates per run (0 = unlimited)
-#   - LOG_VERBOSE: 1 = log each movie, 0 = summary only
-#   - MONITORED_ONLY: 1 = only update monitored movies, 0 = all (default)
-#   - NOTIFY_SCRIPT: Optional path to dynamix notify (empty = skip completion notification)
-#   - TRIGGER_SEARCH: 1 = trigger Radarr search for updated movies, 0 = no (default)
-#   - RETRY_COUNT: Retries for failed API calls (default 2)
+#   - RADARR_URL / RADARR_API_KEY
+#   - CURRENT_YEAR_PROFILE_ID / OLDER_MOVIES_PROFILE_ID
+#   - PROCESS_CURRENT_YEAR / PROCESS_PREVIOUS_YEAR / PREMIUM_YEARS_BACK
+#   - CUSTOM_CURRENT_YEAR / CUSTOM_PREVIOUS_YEAR
+#   - DRY_RUN / MONITORED_ONLY / TRIGGER_SEARCH / MAX_UPDATES_PER_RUN
+#   - CURL_TIMEOUT / RATE_LIMIT_DELAY / RETRY_COUNT / RADARR_VERIFY_SSL
+#   - LOG_VERBOSE / LOG_FILE / NOTIFY_SCRIPT
 #
-# Logging (Unraid-friendly):
-#   - Main output goes to stdout so Unraid User Scripts captures it in the GUI.
-#   - When LOG_FILE is set, each log line is also appended to that file.
-#   - LOG_FILE is validated: rejects paths with "..", starting with "-", or newlines.
+# Note: Output goes to stdout; Unraid User Scripts shows it in the run window.
 #
 # Author: https://github.com/evenwebb
-# License: GPL-3.0
-#
+# Project: https://github.com/evenwebb/unraid-user-scripts
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail
@@ -125,12 +107,91 @@ log() {
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
+    echo "$msg"
     echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
+_friendly_curl_err() {
+    local msg="$1"
+    msg="${msg#curl: }"
+    if [[ "$msg" == *"Could not resolve host"* ]]; then
+        echo "The server name could not be found — check the IP address or hostname in the script."
+    elif [[ "$msg" == *"Connection refused"* ]]; then
+        echo "Connection refused — is Radarr running and is the port number correct?"
+    elif [[ "$msg" == *"Failed to connect"* ]]; then
+        echo "Could not connect — check that Radarr is running and the URL is correct."
+    elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
+        echo "The connection timed out — check the URL and network."
+    elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
+        echo "Login was rejected — wrong API key."
+    else
+        echo "$msg"
+    fi
+}
+
+_log_service_failure() {
+    local service="$1" task="$2" url="$3" code="$4" body="$5" curl_err="${6:-}" fix_hint="${7:-Check the URL and API key in this script.}"
+    if [[ -n "$curl_err" ]]; then
+        log_err "Could not reach ${service} while ${task}. $(_friendly_curl_err "$curl_err") ${fix_hint}"
+        return
+    fi
+    case "$code" in
+        401) log_err "Wrong API key for ${service} while ${task}. ${fix_hint}" ;;
+        403) log_err "${service} refused access while ${task}. ${fix_hint}" ;;
+        404) log_err "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script — it should look like http://your-server:7878 with no extra path." ;;
+        000|"") log_err "Could not connect to ${service} at ${url} while ${task}. Check RADARR_URL, that Radarr is running, and that the port is correct." ;;
+        *)
+            if [[ -n "$body" ]] && ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+                log_err "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check RADARR_URL in this script."
+            else
+                log_err "${service} returned an error while ${task}. ${fix_hint}"
+            fi
+            ;;
+    esac
+}
+
 # Curl base options (caller adds -k for no SSL verify if needed)
-CURL_BASE=(-s -w "\n%{http_code}" --connect-timeout "$CURL_TIMEOUT" -m "$CURL_TIMEOUT")
+CURL_BASE=(-sS -w "\n%{http_code}" --connect-timeout "$CURL_TIMEOUT" -m "$CURL_TIMEOUT")
+
+_radarr_curl_cmd() {
+    RADARR_CURL=(curl "${CURL_BASE[@]}")
+    [[ "$RADARR_VERIFY_SSL" != "1" ]] && RADARR_CURL+=(-k)
+}
+
+_radarr_http_get() {
+    local path="$1" task="$2"
+    local url="${RADARR_URL}${path}" resp code body curl_err fix_hint
+    fix_hint="Check RADARR_URL and RADARR_API_KEY in this script (Radarr → Settings → General → API Key)."
+    _radarr_curl_cmd
+    curl_err=$(mktemp) || return 1
+    resp=$("${RADARR_CURL[@]}" -H "X-Api-Key: $RADARR_API_KEY" -H "Accept: application/json" \
+        "$url" 2>"$curl_err") || {
+        _log_service_failure "Radarr" "$task" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" "$fix_hint"
+        rm -f "$curl_err"
+        return 1
+    }
+    rm -f "$curl_err"
+    code=$(echo "$resp" | tail -n1)
+    body=$(echo "$resp" | sed '$d')
+    if [[ "$code" != "200" ]] || ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+        _log_service_failure "Radarr" "$task" "$RADARR_URL" "$code" "$body" "" "$fix_hint"
+        return 1
+    fi
+    printf '%s' "$body"
+    return 0
+}
+
+_verify_radarr_connection() {
+    local payload app_name
+    payload="$(_radarr_http_get "/api/v3/system/status" "checking the connection")" || return 1
+    app_name=$(printf '%s' "$payload" | jq -r '.appName // empty')
+    if [[ "$app_name" != "Radarr" ]]; then
+        log_err "Connected but the response was not from Radarr — check RADARR_URL and RADARR_API_KEY in this script."
+        return 1
+    fi
+    return 0
+}
 
 is_safe_notify_path() {
     local p="$1"
@@ -150,21 +211,27 @@ send_unraid_notify() {
 radarr_put() {
     local url="$1"
     local data="$2"
-    local attempt=0
-    local result
-    local curl_cmd=(curl "${CURL_BASE[@]}")
-    [[ "$RADARR_VERIFY_SSL" != "1" ]] && curl_cmd+=(-k)
+    local attempt=0 result http_code curl_err last_code="" last_curl_err=""
+    local fix_hint="Check RADARR_URL and RADARR_API_KEY in this script."
+    _radarr_curl_cmd
     while [[ $attempt -le $RETRY_COUNT ]]; do
-        result=$("${curl_cmd[@]}" -X PUT -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
-            -d "$data" "$url" 2>/dev/null || true)
-        local http_code
+        curl_err=$(mktemp) || return 1
+        result=$("${RADARR_CURL[@]}" -X PUT -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
+            -d "$data" "$url" 2>"$curl_err") || last_curl_err=$(tr '\n' ' ' <"$curl_err")
+        rm -f "$curl_err"
         http_code=$(echo "$result" | tail -n1)
+        last_code="$http_code"
         if [[ "$http_code" == "200" ]] || [[ "$http_code" == "202" ]]; then
             return 0
         fi
         ((attempt++)) || true
         [[ $attempt -le $RETRY_COUNT ]] && sleep 2
     done
+    if [[ -n "$last_curl_err" ]]; then
+        _log_service_failure "Radarr" "updating a movie quality profile" "$RADARR_URL" "" "" "$last_curl_err" "$fix_hint"
+    else
+        _log_service_failure "Radarr" "updating a movie quality profile" "$RADARR_URL" "$last_code" "" "" "$fix_hint"
+    fi
     return 1
 }
 
@@ -178,14 +245,15 @@ main() {
         return 1
     fi
     if [[ -z "$RADARR_URL" || -z "$RADARR_API_KEY" ]]; then
-        log_err "Set RADARR_URL and RADARR_API_KEY."
+        log_err "Radarr is not configured. Set RADARR_URL and RADARR_API_KEY at the top of this script."
         return 1
     fi
     RADARR_URL="${RADARR_URL%/}"  # Strip trailing slash for consistent URL building
     if [[ "$RADARR_URL" != http://* && "$RADARR_URL" != https://* ]]; then
-        log_err "RADARR_URL must start with http:// or https://"
+        log_err "RADARR_URL must be a full web address starting with http:// or https:// (you entered: ${RADARR_URL})"
         return 1
     fi
+    _verify_radarr_connection || return 1
     if [[ "$DRY_RUN" != "0" && "$DRY_RUN" != "1" ]]; then
         log_err "DRY_RUN must be 0 or 1."
         return 1
@@ -266,21 +334,8 @@ main() {
     fi
     log "Radarr Quality Profile Updater - premium years: $premium_desc (profile $CURRENT_YEAR_PROFILE_ID), older years: profile $OLDER_MOVIES_PROFILE_ID"
 
-    local curl_cmd=(curl "${CURL_BASE[@]}")
-    [[ "$RADARR_VERIFY_SSL" != "1" ]] && curl_cmd+=(-k)
-
-    # Fetch movies from Radarr
-    local movie_response
-    movie_response=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie") || true
-    local http_code
-    http_code=$(echo "$movie_response" | tail -n1)
     local movie_json
-    movie_json=$(printf '%s\n' "$movie_response" | sed '$d')
-
-    if [[ "$http_code" != "200" ]] || ! echo "$movie_json" | jq -e . >/dev/null 2>&1; then
-        log_err "Failed to fetch movies from Radarr (HTTP $http_code or invalid JSON)."
-        return 1
-    fi
+    movie_json=$(_radarr_http_get "/api/v3/movie" "loading the movie list") || return 1
 
     # Build jq filter (add monitored filter if MONITORED_ONLY=1)
     local MOVIES
@@ -369,14 +424,13 @@ main() {
         if [[ "$PROCESS_CURRENT_YEAR" == "true" && "$MOVIE_YEAR" -ge "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -ne "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
-                FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
+                FULL_MOVIE=$(_radarr_http_get "/api/v3/movie/$MOVIE_ID" "loading details for '$MOVIE_TITLE'") || { ERRORS=$((ERRORS + 1)); continue; }
                 UPDATED_MOVIE=$(echo "$FULL_MOVIE" | jq --argjson pid "$CURRENT_YEAR_PROFILE_ID" '.qualityProfileId = $pid')
                 if radarr_put "$RADARR_URL/api/v3/movie/$MOVIE_ID" "$UPDATED_MOVIE"; then
                     CHANGED=$((CHANGED + 1))
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Updated: $MOVIE_TITLE ($MOVIE_YEAR) → premium profile"
                     [[ "$TRIGGER_SEARCH" == "1" ]] && search_ids+=("$MOVIE_ID")
                 else
-                    log_err "Failed to update: $MOVIE_TITLE ($MOVIE_ID)"
                     ERRORS=$((ERRORS + 1))
                 fi
             else
@@ -388,13 +442,12 @@ main() {
         if [[ "$PROCESS_PREVIOUS_YEAR" == "true" && "$MOVIE_YEAR" -lt "$PREMIUM_MIN_YEAR" && "$PROFILE_ID" -eq "$CURRENT_YEAR_PROFILE_ID" ]]; then
             if [[ "$DRY_RUN" == "0" ]]; then
                 local FULL_MOVIE UPDATED_MOVIE
-                FULL_MOVIE=$("${curl_cmd[@]}" -H "X-Api-Key: $RADARR_API_KEY" "$RADARR_URL/api/v3/movie/$MOVIE_ID" 2>/dev/null | sed '$d')
+                FULL_MOVIE=$(_radarr_http_get "/api/v3/movie/$MOVIE_ID" "loading details for '$MOVIE_TITLE'") || { ERRORS=$((ERRORS + 1)); continue; }
                 UPDATED_MOVIE=$(echo "$FULL_MOVIE" | jq --argjson pid "$OLDER_MOVIES_PROFILE_ID" '.qualityProfileId = $pid')
                 if radarr_put "$RADARR_URL/api/v3/movie/$MOVIE_ID" "$UPDATED_MOVIE"; then
                     REVERTED=$((REVERTED + 1))
                     [[ "$LOG_VERBOSE" == "1" ]] && log "  Reverted: $MOVIE_TITLE ($MOVIE_YEAR) → older profile"
                 else
-                    log_err "Failed to revert: $MOVIE_TITLE ($MOVIE_ID)"
                     ERRORS=$((ERRORS + 1))
                 fi
             else
@@ -412,13 +465,23 @@ main() {
         ids_json=$(printf '%s\n' "${search_ids[@]}" | jq -R 'tonumber' | jq -s .)
         local cmd_body
         cmd_body=$(jq -n --argjson ids "$ids_json" '{name: "MoviesSearch", movieIds: $ids}')
-        local cmd_result
-        cmd_result=$("${curl_cmd[@]}" -X POST -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
-            -d "$cmd_body" "$RADARR_URL/api/v3/command" 2>/dev/null || true)
-        if echo "$cmd_result" | jq -e . >/dev/null 2>&1; then
-            log "Triggered search for ${#search_ids[@]} movie(s)."
-        else
-            log "Warning: Could not trigger Radarr search."
+        local cmd_result code curl_err=""
+        _radarr_curl_cmd
+        curl_err=$(mktemp)
+        if [[ -n "$curl_err" ]]; then
+            cmd_result=$("${RADARR_CURL[@]}" -X POST -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
+                -d "$cmd_body" "$RADARR_URL/api/v3/command" 2>"$curl_err") || {
+                _log_service_failure "Radarr" "triggering a search for updated movies" "$RADARR_URL" "" "" "$(tr '\n' ' ' <"$curl_err")" \
+                    "Check RADARR_URL and RADARR_API_KEY in this script."
+            }
+            rm -f "$curl_err"
+            code=$(echo "$cmd_result" | tail -n1)
+            if [[ "$code" == 2* ]] && printf '%s' "$(echo "$cmd_result" | sed '$d')" | jq -e . >/dev/null 2>&1; then
+                log "Triggered search for ${#search_ids[@]} movie(s)."
+            elif [[ -n "$cmd_result" ]]; then
+                _log_service_failure "Radarr" "triggering a search for updated movies" "$RADARR_URL" "$code" "$(echo "$cmd_result" | sed '$d')" "" \
+                    "Check RADARR_URL and RADARR_API_KEY in this script."
+            fi
         fi
     fi
 
