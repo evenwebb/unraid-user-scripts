@@ -107,6 +107,27 @@ HEADERS: dict[str, str] = {
         ["./clean-docker-log-size.sh", "Edit variables in EDIT FOR YOUR SETUP below."],
         ["DOCKER_CONTAINERS_PATH: path to container log directory", "LOG_FILE: optional log file"],
     ),
+    "clean-download-junk.sh": hdr(
+        "clean-download-junk.sh",
+        "Remove download junk files and empty folders (NZB, torrent, or both).",
+        [
+            "Consolidates clean-nzb-junk.sh and clean-torrent-junk.sh.",
+            "Use PROFILE for preset paths and patterns, or custom with your own lists.",
+        ],
+        [
+            "./clean-download-junk.sh",
+            "Edit variables in EDIT FOR YOUR SETUP below.",
+            "PROFILE: nzb, torrent, all, or custom",
+            "DRY_RUN: 1 = preview only, 0 = delete files",
+        ],
+        [
+            "PROFILE: nzb | torrent | all | custom",
+            "FOLDERS / JUNK_EXTENSIONS: override profile defaults",
+            "EXTRA_FOLDERS / EXTRA_JUNK_EXTENSIONS: append to profile",
+            "MIN_AGE_MINUTES, EXCLUDE_PATTERNS, DELETE_SAMPLES, DELETE_EMPTY_DIRS",
+            "DRY_RUN: 1 = preview only, 0 = delete files",
+        ],
+    ),
     "clean-nzb-junk.sh": hdr(
         "clean-nzb-junk.sh",
         "Remove NZB download junk files and empty folders.",

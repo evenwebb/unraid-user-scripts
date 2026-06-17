@@ -1,139 +1,143 @@
-# 🖥️ Unraid User Scripts
+<div align="center">
 
-Bash scripts for Unraid, designed to be used with the **User Scripts** plugin.
+# Unraid User Scripts
 
-**Repository:** [github.com/evenwebb/unraid-user-scripts](https://github.com/evenwebb/unraid-user-scripts) · **Author:** [evenwebb](https://github.com/evenwebb) · **License:** [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html)
+**Bash automation for the Unraid [User Scripts](https://unraid.net/community/apps) plugin**
 
-> **💡 Tip:** Pre-configured User Scripts plugin folders are available in the `user-scripts-folders/` directory. Copy them directly to your Unraid flash drive for easy installation!
+[![GitHub stars](https://img.shields.io/github/stars/evenwebb/unraid-user-scripts?style=flat&logo=github&logoColor=white&label=Stars)](https://github.com/evenwebb/unraid-user-scripts/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/evenwebb/unraid-user-scripts?style=flat&logo=github&logoColor=white&label=Forks)](https://github.com/evenwebb/unraid-user-scripts/network/members)
+[![CI](https://img.shields.io/github/actions/workflow/status/evenwebb/unraid-user-scripts/bash-syntax-check.yml?branch=main&style=flat&logo=githubactions&logoColor=white&label=CI)](.github/workflows/bash-syntax-check.yml)
+[![Last commit](https://img.shields.io/github/last-commit/evenwebb/unraid-user-scripts?style=flat&logo=git&logoColor=white&label=Last%20commit)](https://github.com/evenwebb/unraid-user-scripts/commits/main)
 
-All scripts use a consistent format: header block, `set -u`, config variables at the top, `log()` helper, and `main "$@"`. Edit configuration at the top of each script and remove or replace any placeholder credentials/paths before use.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat&logo=gnu&logoColor=white)](LICENSE)
+[![Shell: Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Scripts](https://img.shields.io/badge/Scripts-28-F26F21?style=flat&logo=linuxcontainers&logoColor=white)](https://github.com/evenwebb/unraid-user-scripts/tree/main)
+[![Unraid](https://img.shields.io/badge/Unraid-User%20Scripts-F26F21?style=flat&logo=unraid&logoColor=white)](https://unraid.net/community/apps)
 
-## 🔄 Featured: User Scripts Updater (recommended)
+[Install](#-installation) · [Scripts](#-scripts) · [Updater](#-user-scripts-updater) · [Contributing](#-contributing)
 
-Keeping scripts updated is annoying, especially if you've edited variables (URLs, API keys, paths, profile IDs, etc.) inside the script. **`user-scripts-updater.sh`** solves that by updating the User Scripts plugin folders from GitHub while **preserving your local config edits**.
+</div>
 
-- **What it does**
-  - Downloads the latest scripts from GitHub (**no `git` required on Unraid**)
-  - Updates `/boot/config/plugins/user.scripts/scripts/…` from the repo's `user-scripts-folders/`
-  - By default, it **only updates scripts you already have installed** (it will not install new script folders unless you enable it)
-  - **Merges your "EDIT FOR YOUR SETUP" config block** so:
-    - your existing variable values stay the same after updates
-    - new upstream variables are added automatically using upstream defaults
-    - orphaned local variables are preserved (and annotated) so you don't lose settings
-  - **Config conflict mode**: choose `keep-local` (your values win, default) or `use-upstream` (upstream overrides)
-  - **Config diff**: optionally logs which variables were added, removed, or changed during merge
-  - **Selective updates**: limit updates to specific scripts with `INCLUDE_FOLDERS` / `EXCLUDE_FOLDERS`
-  - Validates script syntax before writing updates and uses safer atomic file replacement
-  - Saves backups of replaced scripts (configurable)
+> **Quick start:** Copy [`user-scripts-folders/`](user-scripts-folders/) to `/boot/config/plugins/user.scripts/scripts/` on flash.
 
-- **Why it's useful even if you only use one script**
-  - You can safely pull bug fixes and new features without re-doing your local edits.
+---
 
-- **Suggested schedule**
-  - **Weekly** (e.g. Sunday night) is a good default for most users.
-  - If you prefer faster updates, run it **daily**. It uses a cached ZIP and will skip downloading when nothing changed.
+## 🔄 User Scripts Updater
 
-- **Safety tip**
-  - Start with `DRY_RUN="1"` to verify what it would change, then switch to `DRY_RUN="0"` once you're happy.
-  - If you want it to install scripts you do not already have, set `INSTALL_MISSING="1"` for a run.
-  - If you want to fully reset editable config blocks to upstream defaults for all scripts, set `RESET_CONFIG="1"`.
-  - Use `SHOW_CONFIG_DIFF="1"` to see exactly what changed during each merge.
+> [`user-scripts-updater.sh`](user-scripts-updater.sh) pulls GitHub updates **without overwriting your config**.
 
-- **Unraid UI tip (foreground first)**
-  - In the User Scripts plugin, use **Run Script** (foreground) the first time so you can read the output.
-  - Most scripts support **dry run** mode. When `DRY_RUN="1"`, they will print what they would do and any useful summary data.
-  - Once you are happy with the dry run output, switch to `DRY_RUN="0"` and then use **Run in Background** and/or schedule it.
+| | |
+|---|---|
+| **Fetch** | Repo ZIP (no `git` on Unraid) |
+| **Default** | Installed scripts only (`INSTALL_MISSING=1` for new ones) |
+| **Safety** | Config merge, backups, `bash -n` before write |
 
-## 📜 Scripts (root directory)
+First run: `DRY_RUN=1` → review → `DRY_RUN=0` and schedule.
+
+---
+
+## 🚀 Installation
+
+<details>
+<summary>Paste into User Scripts (Web UI)</summary>
+
+1. Install **User Scripts** from Community Applications
+2. **Settings → User Scripts → Add New Script**
+3. Paste a script from this repo, edit config, save, run or schedule
+
+</details>
+
+<details open>
+<summary>Copy plugin folders (recommended)</summary>
+
+One folder per script under `/boot/config/plugins/user.scripts/scripts/` (`script`, `name`, `description`).
+
+1. Copy [`user-scripts-folders/`](user-scripts-folders/) to flash `scripts/`
+2. Edit config in each `script` file
+3. Run or schedule in the plugin
+
+Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folders.yml). Regenerate: `python3 .github/scripts/generate_folders.py`
+
+</details>
+
+---
+
+## 📜 Scripts
+
+### Media · Sonarr · Radarr · NZBGet
 
 | Script | Description |
 |:-------|:------------|
-| **apply-unraid-perms.sh** | Applies Unraid-style "new permissions" (nobody:users, Docker-safe) to configured paths with optional parallel processing.<br>📝 **Config:** `PERM_PATHS` (e.g. `/mnt/user`, `/mnt/appdata`, `/mnt/downloads`), `OWNER_GROUP`, `CHMOD_FLAGS`, `EXCLUDE_PATHS`, `PARALLEL_JOBS`<br>🔐 **Requires:** root (run with sudo)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **btrfs-scrub.sh** | Runs a Btrfs scrub on a cache/device, logs output, and sends Unraid notifications on start/success/failure. Supports resuming interrupted scrubs.<br>📝 **Config:** `SCRUB_DEVICE` (e.g. /mnt/cache, /mnt/downloads), `LOG_FILE`, `NOTIFY_SCRIPT`, `ENABLE_NOTIFICATIONS`, `RESUME_EXISTING`<br>📬 **Notifications:** Unraid dynamix (start/success/failure) |
-| **check-plex-status.sh** | Checks if the Plex Docker container is running and if the web UI responds; restarts the container if the UI is unreachable. Notifies on recovery and enforces a daily restart limit.<br>📝 **Config:** `PLEX_CONTAINER_NAME`, `PLEX_WEB_UI`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`, `RESTART_ONLY_IF_AUTOSTART`, `NOTIFY_ON_RECOVERY`, `MAX_RESTARTS_PER_DAY`<br>📬 **Notifications:** Optional Unraid dynamix notify |
-| **check-smart-status.sh** | Checks SMART health status of disks and sends an Unraid dynamix alert if any fail. Schedule (e.g. daily).<br>📝 **Config:** `DISKS` (empty = auto-detect), `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🔐 **Requires:** root (run with sudo)<br>📬 **Notifications:** Unraid dynamix |
-| **clean-docker-log-size.sh** | Truncates Docker container log files to free space in docker.img. Shows before/after sizes.<br>📝 **Config:** `DOCKER_CONTAINERS_PATH`, optional `LOG_FILE` |
-| **clean-nzb-junk.sh** | Removes NZB download junk (nfo, par2, samples, RAR splits, etc.) and empty directories. Respects file age limits and exclude patterns.<br>📝 **Config:** `FOLDERS`, `JUNK_EXTENSIONS`, `MIN_AGE_MINUTES`, `EXCLUDE_PATTERNS`<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **clean-torrent-junk.sh** | Removes torrent download junk (nfo, par2, samples, RAR splits, etc.) and empty directories. Respects file age limits and exclude patterns.<br>📝 **Config:** `FOLDERS`, `JUNK_EXTENSIONS`, `MIN_AGE_MINUTES`, `EXCLUDE_PATTERNS`<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **clear-movies-download-folder.sh** | Empties the movies download directory and prints a summary. Respects file age limits.<br>📝 **Config:** `DIR_PATH`, `DRY_RUN`, `MIN_AGE_MINUTES`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📬 **Notifications:** Optional Unraid dynamix notify<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **clear-plex-codecs.sh** | Deletes Plex Media Server codec cache (Plex re-downloads as needed).<br>📝 **Config:** `PLEX_CODECS_PATH` |
-| **clear-torrent-download-folder.sh** | Empties the torrent download directory and prints a summary. Respects file age limits.<br>📝 **Config:** `DIR_PATH`, `DRY_RUN`, `MIN_AGE_MINUTES`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📬 **Notifications:** Optional Unraid dynamix notify<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **clear-tv-shows-download-folder.sh** | Empties the TV shows download directory and prints a summary. Respects file age limits.<br>📝 **Config:** `DIR_PATH`, `DRY_RUN`, `MIN_AGE_MINUTES`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📬 **Notifications:** Optional Unraid dynamix notify<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **delete-dangling-images.sh** | Removes Docker images with no tag (dangling) to free space in docker.img.<br>✅ **No configuration required** |
-| **disk-error-alert.sh** | Checks syslog for md/storage errors; counts **unique** matching lines (de-duped across patterns) and sends an Unraid dynamix alert **only when that count increases**. Extracts per-disk IDs and optionally cross-references with SMART data.<br>📝 **Config:** `SYSLOG_PATH`, `NOTIFY_SCRIPT`, `ERROR_PATTERNS`, `EXCLUDE_PATTERNS`, `ENABLE_PER_DISK_TRACKING`, `ENABLE_SMART_CORRELATION`, optional `LOG_FILE`, optional `STATE_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>📬 **Notifications:** Unraid dynamix |
-| **docker-image-usage-alert.sh** | 🆕 Monitors docker.img disk usage percentage and sends Unraid notifications at warning (70%) and critical (85%) thresholds. Escalation only fires once per crossing, with auto-reset when usage drops.<br>📝 **Config:** `DOCKER_PATH`, `WARNING_THRESHOLD_PCT`, `CRITICAL_THRESHOLD_PCT`, `SHOW_LARGEST_CONTAINERS`, `LARGEST_COUNT`, `NOTIFY_SCRIPT`, optional `LOG_FILE`, optional `STATE_FILE`<br>📬 **Notifications:** Unraid dynamix (warning/critical) |
-| **flash-backup.sh** | 🆕 Creates compressed backups of the Unraid boot flash drive to array storage. Includes integrity verification, automatic rotation, and configurable exclusions. Critical for disaster recovery.<br>📝 **Config:** `BACKUP_DEST`, `KEEP_COUNT`, `COMPRESSION`, `VERIFY_BACKUP`, `EXCLUDE_LOGS`, `EXCLUDE_PREVIOUS_BACKUPS`, `MAX_BACKUP_SIZE_MB`, `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📬 **Notifications:** Unraid dynamix (success/failure) |
-| **language-guard-radarr.sh** | Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.<br>📝 **Config:** `RADARR_URL`, `RADARR_API_KEY`, `STATE_FILE`, `LOG_FILE`, `MAX_ACTIONS_PER_RUN`, `SEARCH_COOLDOWN_DAYS`, optional `MOVIE_ID`, `MOVIE_FILTER`<br>📋 **Logging:** stdout (Unraid GUI) plus persistent stats/state in `STATE_FILE`<br>🧪 **Dry-run:** Script defaults to `DRY_RUN=1`<br>⚙️ **Dependencies:** curl, jq (`ffprobe` optional) |
-| **language-guard-sonarr.sh** | Audits Sonarr episode files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.<br>📝 **Config:** `SONARR_URL`, `SONARR_API_KEY`, `STATE_FILE`, `LOG_FILE`, `MAX_ACTIONS_PER_RUN`, `SEARCH_COOLDOWN_DAYS`, `DELETE_ONLY_IF_REPLACEABLE`, optional `SERIES_ID`, `SERIES_FILTER`<br>📋 **Logging:** stdout (Unraid GUI) plus persistent stats/state in `STATE_FILE`<br>🧪 **Dry-run:** Script defaults to `DRY_RUN=1`<br>⚙️ **Dependencies:** curl, jq (`ffprobe` optional) |
-| **out-of-memory-errors.sh** | Checks syslog for "Out of memory" events and sends an Unraid dynamix alert when new OOMs are detected. Shows which processes were killed and tracks state across runs.<br>📝 **Config:** `SYSLOG_PATH`, `NOTIFY_SCRIPT`, `SHOW_KILLED_PROCESSES`, `ENABLE_STATE_TRACKING`, optional `LOG_FILE`, optional `STATE_FILE`<br>📬 **Notifications:** Unraid dynamix |
-| **parity-check-monitor.sh** | 🆕 Monitors Unraid parity check progress and sends notifications at start, configurable milestones (e.g. every 25%), and completion. Reports duration, ETA, and any errors found.<br>📝 **Config:** `VAR_INI`, `NOTIFY_ON_START`, `NOTIFY_ON_PROGRESS`, `PROGRESS_MILESTONE_PCT`, `NOTIFY_ON_COMPLETION`, `NOTIFY_ON_ERRORS`, `NOTIFY_SCRIPT`, optional `LOG_FILE`, optional `STATE_FILE`<br>📬 **Notifications:** Unraid dynamix (start/milestones/complete/errors) |
-| **queue-sync-nzbget.sh** | Syncs Sonarr/Radarr queues with NZBGet: removes \*arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.<br>📝 **Config:** Radarr/Sonarr/NZBGet URLs and API keys/passwords; edit in script<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script<br>⚙️ **Dependencies:** curl, jq |
-| **record-disk-assignments.sh** | Writes current Unraid disk assignments to `/boot/config/DISK_ASSIGNMENTS.txt` and optionally a machine-readable JSON file.<br>📝 **Config:** `DISKS_INI`, `OUTPUT_FILE`, `JSON_OUTPUT` |
-| **remove-os-metadata.sh** | Removes macOS metadata files (`.DS_Store`, `._*`, `.Spotlight-V100`, `.Trashes`, etc.) and Windows metadata files (`Thumbs.db`, `desktop.ini`, etc.).<br>📝 **Config:** `SEARCH_PATHS`, `MAX_DEPTH`, `DELETE_MACOS_METADATA`, `DELETE_WINDOWS_METADATA`, `INCLUDE_RESOURCE_FORKS`, `DRY_RUN`, optional `LOG_FILE`<br>🧪 **Dry-run:** Script defaults to `DRY_RUN=1` |
-| **server-info-push.sh** | Sends a styled status summary (storage, temps, RAM, uptime, UPS, VMs, containers) via Unraid dynamix notify. Each section can be individually toggled on/off.<br>📝 **Config:** `PUSH_NOTIFICATIONS`, `NOTIFY_SCRIPT`, mount paths, `INCLUDE_UPS`, `NUT_UPS_NAME`, `SHOW_STORAGE`, `SHOW_TEMPS`, `SHOW_MEMORY`, `SHOW_UPTIME_LOAD`, `SHOW_VMS`, `SHOW_CONTAINERS`, `SHOW_UPS`<br>📬 **Notifications:** Optional Unraid dynamix notify |
-| **user-scripts-updater.sh** | Updates Unraid User Scripts plugin folders from a GitHub ZIP download (no git required) while preserving your edited config variables across updates.<br>📝 **Config:** `SOURCE_MODE`, `ZIP_URL`, `REPO_DIR`, `DEST_DIR`, `FETCH_UPDATES`, `DRY_RUN`, `BACKUP_DIR`, `WORK_DIR`, `INSTALL_MISSING`, `RESET_CONFIG`, `CONFIG_CONFLICT_MODE`, `SHOW_CONFIG_DIFF`, `INCLUDE_FOLDERS`, `EXCLUDE_FOLDERS`<br>📋 **Behavior:** merges local config by default, configurable conflict resolution, selective script updates, validates scripts before writing, and uses atomic file replacement |
-| **update-radarr-profiles.sh** | Updates Radarr quality profiles by year window: premium years (current year back `PREMIUM_YEARS_BACK`) → one profile, older years → older movies profile.<br>📝 **Config:** Radarr URL/key, profile IDs, `PREMIUM_YEARS_BACK`, `CURL_TIMEOUT`, `RATE_LIMIT_DELAY`, `MAX_UPDATES_PER_RUN`, `LOG_VERBOSE`, `MONITORED_ONLY`, `TRIGGER_SEARCH`, `RETRY_COUNT`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **update-sonarr-profiles.sh** | Updates Sonarr quality profiles by show status: airing, upcoming, ended, continuing with no upcoming.<br>📝 **Config:** Sonarr URL/key, profile IDs per category, `AIRING_DAYS`, `UPCOMING_DAYS`, `PROCESS_*`, optional `NOTIFY_SCRIPT`, optional `LOG_FILE`<br>📋 **Logging:** stdout (Unraid GUI); optional `LOG_FILE` appends when set (path validated)<br>🧪 **Dry-run:** Set `DRY_RUN=1` in script |
-| **view-docker-log-size.sh** | Lists Docker container log file sizes (largest first) with optional per-container breakdown and trend tracking across runs.<br>📝 **Config:** `DOCKER_CONTAINERS_PATH`, `HEAD_COUNT`, `PER_CONTAINER_BREAKDOWN`, `SHOW_TREND`, optional `TREND_FILE` |
+| **queue-sync-nzbget.sh** | Sync *arr queues with NZBGet: remove stale items, blocklist, re-search |
+| **language-guard-radarr.sh** | Audit movie audio languages; remediate via blocklist + re-search |
+| **language-guard-sonarr.sh** | Same for Sonarr episodes |
+| **update-radarr-profiles.sh** | Assign quality profiles by movie year |
+| **update-sonarr-profiles.sh** | Assign quality profiles by show status |
 
-## 📐 Script format
+### Downloads · cleanup
 
-All scripts in the repository root follow a consistent format:
+| Script | Description |
+|:-------|:------------|
+| **clean-download-junk.sh** | Remove NZB/torrent junk; profiles: `nzb`, `torrent`, `all`, `custom` |
+| **clean-nzb-junk.sh** | Legacy; use **clean-download-junk.sh** (`PROFILE=nzb`) |
+| **clean-torrent-junk.sh** | Legacy; use **clean-download-junk.sh** (`PROFILE=torrent`) |
+| **clear-movies-download-folder.sh** | Empty movies download folder (optional age filter) |
+| **clear-torrent-download-folder.sh** | Empty torrent download folder (optional age filter) |
+| **clear-tv-shows-download-folder.sh** | Empty TV download folder (optional age filter) |
+| **remove-os-metadata.sh** | Remove `.DS_Store`, `Thumbs.db`, and similar metadata |
 
-- A standard header (name, description, usage, configuration, author, license)
-- `set -u` and `set -o pipefail`
-- Configuration variables at the top with "EDIT FOR YOUR SETUP" where needed
-- No personal information (use placeholders for API keys, paths, passwords)
-- `log()` / `log_err()` functions with `[YYYY-MM-DD HH:MM:SS]` timestamp prefix
-- `is_safe_path()` for path validation (rejects `..`, `-` prefix, and newlines)
-- `send_unraid_notify()` wrapper for Unraid dynamix notifications
-- `main "$@"` entry point
+### Docker · Plex
 
-## 📦 Unraid compatibility and dependencies
+| Script | Description |
+|:-------|:------------|
+| **check-plex-status.sh** | Check Plex container + web UI; restart if down |
+| **clear-plex-codecs.sh** | Clear Plex codec cache |
+| **clean-docker-log-size.sh** | Truncate container logs (free docker.img space) |
+| **delete-dangling-images.sh** | Remove untagged Docker images |
+| **docker-image-usage-alert.sh** | Alert on docker.img usage (default 70% / 85%) |
+| **view-docker-log-size.sh** | List largest container logs |
 
-These scripts target the latest public Unraid releases and are intended to run from the **User Scripts** plugin.
+### Array · disks · parity
 
-- **Python3**
-  - `language-guard-*.sh` requires `python3`, which can be installed via the Python3 plugin on Unraid.
+| Script | Description |
+|:-------|:------------|
+| **apply-unraid-perms.sh** | Apply Unraid permissions (nobody:users); requires root |
+| **btrfs-scrub.sh** | Btrfs scrub with notifications |
+| **check-smart-status.sh** | SMART health alert; requires root |
+| **disk-error-alert.sh** | Alert on new md/storage syslog errors |
+| **flash-backup.sh** | Flash drive backups to array (rotation + verify) |
+| **out-of-memory-errors.sh** | Alert on new OOM syslog events |
+| **parity-check-monitor.sh** | Parity check progress notifications |
+| **record-disk-assignments.sh** | Export disk assignments to flash |
 
-## 🚀 Installation (Unraid User Scripts)
+### Server · misc
 
-**Get the scripts:** Clone or download from [https://github.com/evenwebb/unraid-user-scripts](https://github.com/evenwebb/unraid-user-scripts).
+| Script | Description |
+|:-------|:------------|
+| **server-info-push.sh** | Push server status summary via notify |
+| **user-scripts-updater.sh** | Update plugin folders from GitHub (see [Updater](#-user-scripts-updater)) |
 
-### Method 1: Manual Creation (via Web UI)
+---
 
-1. Install the **User Scripts** plugin from Community Applications.
-2. **Settings → User Scripts → Add New Script** (or edit existing).
-3. Paste the contents of the desired script from the repo root (e.g. `clean-nzb-junk.sh`).
-4. Edit the configuration section at the top (paths, API keys, etc.).
-5. Save and schedule or run manually.
+## 📦 Dependencies
 
-### Method 2: Copy Folder Structure (Recommended)
+| Dependency | Scripts |
+|:-----------|:--------|
+| curl + jq | `queue-sync-nzbget.sh`, `language-guard-*.sh`, `update-*-profiles.sh` |
+| python3 | `language-guard-*.sh` |
+| Docker CLI | `check-plex-status.sh`, `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh` |
+| Bash 4.3+ | `user-scripts-updater.sh` |
+| root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh` |
+| smartctl | `check-smart-status.sh`; optional in `disk-error-alert.sh` |
 
-The User Scripts plugin stores scripts in `/boot/config/plugins/user.scripts/scripts/` on the flash drive. Each script requires a folder containing:
-- `script` - The actual script file
-- `description` - Description text (shown in the plugin UI)
-- `name` - Display name (shown in the plugin UI)
+---
 
-**Pre-generated folders are available:** This repository includes a `user-scripts-folders/` directory with all scripts pre-configured for the User Scripts plugin. These folders are automatically generated by a GitHub Action whenever scripts are updated.
+<div align="center">
 
-**To use this method:**
-1. Download or clone this repository.
-2. Copy the entire `user-scripts-folders/` directory contents to `/boot/config/plugins/user.scripts/scripts/` on your Unraid flash drive (or copy individual script folders as needed).
-3. The scripts will automatically appear in the User Scripts plugin with their names and descriptions.
-4. Edit the configuration section in each script's `script` file as needed.
-5. Schedule or run manually from the plugin UI.
+**[Steven (evenwebb)](https://github.com/evenwebb)** · [GPL-3.0](LICENSE)
 
-**Note:** The folders in `user-scripts-folders/` are auto-generated. To regenerate them manually, run `.github/scripts/generate_folders.py`.
+PRs welcome · [CI](.github/workflows/bash-syntax-check.yml) on pull requests · `user-scripts-folders/` [auto-synced](.github/workflows/sync-user-scripts-folders.yml) on merge to `main`
 
-## 👤 Author
+New scripts: update this README and [generate_folders.py](.github/scripts/generate_folders.py)
 
-[Steven (evenwebb)](https://github.com/evenwebb) · [unraid-user-scripts](https://github.com/evenwebb/unraid-user-scripts)
-
-## 📄 License
-
-GNU General Public License v3.0. See [LICENSE](LICENSE) or [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
-
-## 🤝 Contributing
-
-Open issues or pull requests as needed. Test changes before submitting.
+</div>
