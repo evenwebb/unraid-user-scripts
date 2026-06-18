@@ -106,6 +106,10 @@ resolve_smart_disk() {
 }
 
 main() {
+    if [[ "$(id -u)" -ne 0 ]]; then
+        log_err "Must run as root (e.g. sudo)."
+        return 1
+    fi
     if ! command -v smartctl &>/dev/null; then
         log_err "smartctl is required. Install smartmontools."
         return 1

@@ -184,12 +184,20 @@ def main():
     
     for script_path in script_files:
         script_file = script_path.name
-        
+
+        if script_file not in SCRIPT_NAMES:
+            print(f"✗ Script missing from SCRIPT_NAMES: {script_file}")
+            failed_count += 1
+            continue
+
         # Get display name (auto-generate for new scripts not in mapping)
-        display_name = SCRIPT_NAMES.get(script_file, script_file.replace('.sh', '').replace('-', ' ').title())
-        
+        display_name = SCRIPT_NAMES[script_file]
         # Plugin description: SCRIPT_DESCRIPTIONS is canonical; README is fallback.
-        description = SCRIPT_DESCRIPTIONS.get(script_file, readme_descriptions.get(script_file, 'Unraid user script'))
+        description = SCRIPT_DESCRIPTIONS.get(script_file) or readme_descriptions.get(script_file, "")
+        if not description:
+            print(f"✗ Script missing description: {script_file}")
+            failed_count += 1
+            continue
         
         # Sanitize folder name (folder name can differ from display name)
         # Unraid User Scripts shows the friendly name from the `name` file, so we
@@ -281,6 +289,9 @@ def main():
     print("1. Copy the folders from user-scripts-folders/ to /boot/config/plugins/user.scripts/scripts/ on your Unraid flash drive")
     print("2. The scripts will appear in the User Scripts plugin with their names and descriptions")
     print("3. Edit configuration in each script's 'script' file as needed")
+
+    if failed_count:
+        sys.exit(1)
 
 
 if __name__ == '__main__':

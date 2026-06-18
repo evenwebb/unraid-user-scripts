@@ -50,6 +50,9 @@ log_err() {
 flush_disk() {
     [[ -z "$d_name" && -z "$d_id" ]] && return 0
     echo "Disk: ${d_name:-}  Device: ${d_id:-}  Status: ${d_status:-}" >> "$OUTPUT_FILE"
+    disk_names+=("${d_name:-}")
+    disk_ids+=("${d_id:-}")
+    disk_statuses+=("${d_status:-}")
 }
 
 main() {
@@ -75,6 +78,9 @@ main() {
     d_name=""
     d_id=""
     d_status=""
+    disk_names=()
+    disk_ids=()
+    disk_statuses=()
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -106,27 +112,27 @@ main() {
     log "Disk assignments saved to $OUTPUT_FILE"
 
     if [[ "$JSON_OUTPUT" == "1" ]]; then
+        if ! command -v jq &>/dev/null; then
+            log_err "jq is required for JSON_OUTPUT=1 but not found."
+            return 1
+        fi
         local json_file="${OUTPUT_FILE}.json"
-        {
-            echo "{"
-            echo "  "date": "$(date -Iseconds)","
-            echo "  "disks": ["
-            local first=1 dname did dstatus
-            while IFS= read -r line; do
-                [[ -z "$line" || "$line" == "Disk Assignments as of"* ]] && continue
-                if [[ "$line" =~ ^Disk:[[:space:]]+(.*)[[:space:]]+Device:[[:space:]]+(.*)[[:space:]]+Status:[[:space:]]+(.*) ]]; then
-                    dname="${BASH_REMATCH[1]}"
-                    did="${BASH_REMATCH[2]}"
-                    dstatus="${BASH_REMATCH[3]}"
-                    [[ $first -eq 0 ]] && echo ","
-                    printf '    {"name": "%s", "device": "%s", "status": "%s"}' "$dname" "$did" "$dstatus"
-                    first=0
-                fi
-            done < "$OUTPUT_FILE"
-            echo ""
-            echo "  ]"
-            echo "}"
-        } > "$json_file" || log_err "Failed to write JSON output: $json_file"
+        local disks_json="[]" i
+        for (( i=0; i<${#disk_names[@]}; i++ )); do
+            disks_json=$(jq -n \
+                --argjson arr "$disks_json" \
+                --arg name "${disk_names[$i]}" \
+                --arg device "${disk_ids[$i]}" \
+                --arg status "${disk_statuses[$i]}" \
+                '$arr + [{name: $name, device: $device, status: $status}]')
+        done
+        if ! jq -n \
+            --arg date "$(date -Iseconds)" \
+            --argjson disks "$disks_json" \
+            '{date: $date, disks: $disks}' > "$json_file"; then
+            log_err "Failed to write JSON output: $json_file"
+            return 1
+        fi
         log "JSON disk assignments saved to $json_file"
     fi
 }

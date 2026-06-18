@@ -15,7 +15,7 @@
 #   - WARNING_THRESHOLD_PCT / CRITICAL_THRESHOLD_PCT: alert levels
 #   - SHOW_LARGEST_CONTAINERS / LARGEST_COUNT: optional container breakdown
 #   - NOTIFY_SCRIPT: dynamix notify path
-#   - LOG_FILE / STATE_FILE: optional logging and state
+#   - LOG_FILE / STATE_FILE / LOCK_FILE: optional logging, state, and run lock
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -52,6 +52,9 @@ LOG_FILE=""
 # Alert escalation state (empty = docker-usage.state beside this script)
 STATE_FILE=""
 
+# Prevent concurrent runs (empty = disabled; e.g. /tmp/docker-image-usage-alert.lock)
+LOCK_FILE=""
+
 # Default state file: same dir as this script
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 [[ -z "$STATE_FILE" ]] && STATE_FILE="${_SCRIPT_DIR}/docker-usage.state"
@@ -74,6 +77,12 @@ if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT
 fi
 if [[ -n "$STATE_FILE" ]] && [[ "$STATE_FILE" == *".."* || "$STATE_FILE" == "-"* ]]; then
     _ui_msg="Error: STATE_FILE path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
+    exit 1
+fi
+if [[ -n "$LOCK_FILE" ]] && [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
+    _ui_msg="Error: LOCK_FILE path invalid."
     echo "$_ui_msg"
     echo "$_ui_msg" >&2
     exit 1
@@ -140,16 +149,24 @@ get_usage_human() {
     echo "${used} / ${total}"
 }
 
-# List largest containers by size (requires docker)
+# List largest containers by writable layer size (single docker call; fallback to container dir du)
 list_largest_containers() {
     local count="$1"
-    docker ps --format '{{.Names}}' 2>/dev/null | while IFS= read -r cname; do
-        [[ -z "$cname" ]] && continue
-        local size
-        size=$(docker ps -s --format '{{.Size}}' --filter "name=^${cname}$" 2>/dev/null | awk '{print $NF}' | sed 's/)$//' || echo "0B")
-        [[ -z "$size" ]] && size="0B"
-        echo "${size} ${cname}"
-    done | sort -rh | head -n "$count"
+    if docker ps -s --format '{{.Size}}\t{{.Names}}' 2>/dev/null | grep -q .; then
+        docker ps -s --format '{{.Size}}\t{{.Names}}' 2>/dev/null | while IFS=$'\t' read -r size name; do
+            [[ -z "$name" ]] && continue
+            echo "${size%% *} ${name}"
+        done | sort -rh | head -n "$count"
+        return 0
+    fi
+    local containers_dir="${DOCKER_PATH}/containers"
+    [[ -d "$containers_dir" ]] || return 0
+    du -sk "$containers_dir"/* 2>/dev/null | sort -rn | head -n "$count" | while read -r kb dir; do
+        local cid cname
+        cid=$(basename "$dir")
+        cname=$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's|^/||')
+        echo "${kb}K ${cname:-$cid}"
+    done
 }
 
 # Trigger Unraid notification
@@ -167,6 +184,29 @@ send_unraid_notify() {
 }
 
 main() {
+    local lock_dir
+    if [[ -n "$LOCK_FILE" ]]; then
+        if ! command -v flock &>/dev/null; then
+            log_err "LOCK_FILE is set but flock is not available."
+            return 1
+        fi
+        lock_dir=$(dirname "$LOCK_FILE")
+        if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
+            log_err "LOCK_FILE directory does not exist: $lock_dir"
+            return 1
+        fi
+        exec 200>"$LOCK_FILE"
+        if ! flock -n 200; then
+            log_err "Another copy is already running (lock: $LOCK_FILE)."
+            return 1
+        fi
+    elif command -v flock &>/dev/null && [[ -n "$STATE_FILE" ]]; then
+        lock_dir=$(dirname "$STATE_FILE")
+        [[ -d "$lock_dir" ]] || mkdir -p "$lock_dir" 2>/dev/null || true
+        exec 201>>"$STATE_FILE"
+        flock -w 30 201 || { log_err "Could not lock state file: $STATE_FILE"; return 1; }
+    fi
+
     if [[ ! "$WARNING_THRESHOLD_PCT" =~ ^[0-9]+$ ]] || [[ ! "$CRITICAL_THRESHOLD_PCT" =~ ^[0-9]+$ ]]; then
         log_err "WARNING_THRESHOLD_PCT and CRITICAL_THRESHOLD_PCT must be integers."
         return 1
@@ -241,4 +281,4 @@ main() {
     return 0
 }
 
-main "$@"
+main "$@" || exit 1

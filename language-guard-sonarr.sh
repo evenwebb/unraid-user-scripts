@@ -14,7 +14,7 @@
 #
 # Configuration (edit script variables below):
 #   - SONARR_URL / SONARR_API_KEY: Sonarr connection
-#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
+#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK / VERBOSE_PROGRESS
 #   - DELETE_ONLY_IF_REPLACEABLE: 1 = skip unmonitored or unreplaceable content
 #   - LOG_FILE / STATE_FILE / LOCK_FILE
 #   - RATE_LIMIT_DELAY / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
@@ -46,8 +46,9 @@ SONARR_API_KEY=""       # Settings → General → API Key
 DRY_RUN="1"             # 1 = preview only (recommended first), 0 = apply changes
 DEBUG="0"               # 1 = extra logging, 0 = normal
 USE_FFPROBE_FALLBACK="0"  # 1 = probe media with ffprobe when Sonarr language metadata is missing
+VERBOSE_PROGRESS="1"      # 1 = log periodic scan progress; 0 = summary milestones only
 
-# Persistent files (empty = default beside this script)
+# Persistent files (empty = /tmp defaults to reduce flash wear on /boot)
 LOG_FILE=""
 STATE_FILE=""
 LOCK_FILE="/tmp/sonarr-language-guard.lock"
@@ -70,8 +71,8 @@ FAST_DISCOVERY="1"      # 1 = faster Python discovery (recommended), 0 = Bash/jq
 
 ###############################################################################
 
-[[ -z "$LOG_FILE" ]] && LOG_FILE="$SCRIPT_DIR/sonarr-language-guard.log"
-[[ -z "$STATE_FILE" ]] && STATE_FILE="$SCRIPT_DIR/sonarr-language-guard-state.json"
+[[ -z "$LOG_FILE" ]] && LOG_FILE="/tmp/sonarr-language-guard.log"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="/tmp/sonarr-language-guard-state.json"
 [[ -n "${RATE_LIMIT_SECONDS:-}" ]] && RATE_LIMIT_DELAY="$RATE_LIMIT_SECONDS"
 
 ###############################################################################
@@ -1225,7 +1226,7 @@ process_file() {
   fi
 
   FILES_SCANNED=$((FILES_SCANNED + 1))
-  if (( FILES_SCANNED % 250 == 0 )); then
+  if [[ "$VERBOSE_PROGRESS" == "1" ]] && (( FILES_SCANNED % 250 == 0 )); then
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
   fi
   original_language="$(jq_read "$series_json" -r '.originalLanguage.name // empty' | while IFS= read -r l; do canonical_language "$l"; done)"
@@ -1575,7 +1576,7 @@ main() {
     local discovery_output progress_lines discovery_json cand_len candidate_json
     discovery_output="$(discover_candidates_fast)"
     progress_lines="$(jq_read "$discovery_output" -cr "select(.progress?)" 2>/dev/null || true)"
-    if [[ -n "$progress_lines" ]]; then
+    if [[ "$VERBOSE_PROGRESS" == "1" && -n "$progress_lines" ]]; then
       while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         log_line "INFO" "scan_progress series_scanned=$(jq_read "$line" -r ".progress")"

@@ -118,28 +118,59 @@ send_unraid_notify() {
     fi
 }
 
-# Read a key from var.ini (simple ini parser: key="value")
+# Read a key from var.ini (portable: grep -E "^key=")
 ini_get() {
     local file="$1" key="$2"
-    grep -oP "^${key}=\K.*" "$file" 2>/dev/null | tr -d '"' || echo ""
+    local line val
+    line=$(grep -E "^${key}=" "$file" 2>/dev/null | tail -1) || return 0
+    val="${line#*=}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val#\"}"
+    val="${val%\"}"
+    printf '%s' "$val"
 }
 
-# Read state file: <last_check_uuid> <last_position_pct>
+# Count parity/sync-related error lines in syslog since a line offset (best-effort).
+count_parity_sync_errors_from_syslog() {
+    local start_line="${1:-1}"
+    local syslog="/var/log/syslog"
+    [[ ! -r "$syslog" ]] && { echo 0; return 0; }
+    [[ ! "$start_line" =~ ^[0-9]+$ ]] || [[ "$start_line" -lt 1 ]] && start_line=1
+    tail -n +"$start_line" "$syslog" 2>/dev/null \
+        | grep -ciE 'parity.*(error|mismatch)|sync error|read error.*parity|parity.*read error' 2>/dev/null || echo 0
+}
+
+get_syslog_line_count() {
+    local syslog="/var/log/syslog"
+    [[ ! -r "$syslog" ]] && { echo 1; return 0; }
+    wc -l < "$syslog" 2>/dev/null | tr -d ' '
+}
+
+# Read state file: <last_check_uuid> <last_position_pct> [syslog_start_line]
 read_parity_state() {
     local f="$1"
-    [[ ! -f "$f" || ! -r "$f" ]] && { echo "none 0" && return 0; }
-    tr -d '\r' < "$f" 2>/dev/null || echo "none 0"
+    [[ ! -f "$f" || ! -r "$f" ]] && { echo "none 0 1"; return 0; }
+    local line
+    line=$(tr -d '\r' < "$f" 2>/dev/null | head -1)
+    [[ -z "$line" ]] && { echo "none 0 1"; return 0; }
+    local uuid pct start_line
+    read -r uuid pct start_line <<< "$line"
+    uuid="${uuid:-none}"
+    pct="${pct:-0}"
+    start_line="${start_line:-1}"
+    echo "$uuid $pct $start_line"
 }
 
 write_parity_state() {
-    local f="$1" uuid="$2" pct="$3" dir state_tmp
+    local f="$1" uuid="$2" pct="$3" start_line="${4:-1}" dir state_tmp
     dir=$(dirname "$f")
     if [[ ! -d "$dir" || ! -w "$dir" ]]; then
         log_err "Cannot write state directory: $dir"
         return 1
     fi
     state_tmp="${f}.tmp.$$"
-    printf '%s %s\n' "$uuid" "$pct" > "$state_tmp" 2>/dev/null || { log_err "Cannot write state temp file"; return 1; }
+    printf '%s %s %s\n' "$uuid" "$pct" "$start_line" > "$state_tmp" 2>/dev/null || { log_err "Cannot write state temp file"; return 1; }
     mv -f "$state_tmp" "$f" 2>/dev/null || { rm -f "$state_tmp" 2>/dev/null || true; log_err "Cannot commit state file: $f"; return 1; }
 }
 
@@ -167,42 +198,51 @@ main() {
         log_err "PROGRESS_MILESTONE_PCT must be a positive integer."
         return 1
     fi
+    if [[ $((100 % PROGRESS_MILESTONE_PCT)) -ne 0 ]]; then
+        log_err "PROGRESS_MILESTONE_PCT must divide 100 evenly (got: $PROGRESS_MILESTONE_PCT)."
+        return 1
+    fi
 
-    local md_state md_resync_pos md_resync_size md_resync_errors md_resync_action
+    local md_state md_resync_pos md_resync_size md_resync_action
     md_state=$(ini_get "$VAR_INI" "mdState")
     md_resync_pos=$(ini_get "$VAR_INI" "mdResyncPos")
     md_resync_size=$(ini_get "$VAR_INI" "mdResyncSize")
-    md_resync_errors=$(ini_get "$VAR_INI" "mdResyncDb")
     md_resync_action=$(ini_get "$VAR_INI" "mdResyncAction")
 
+    md_resync_pos="${md_resync_pos:-0}"
+    md_resync_size="${md_resync_size:-0}"
+
     local is_checking=0
-    if [[ "$md_state" == "RECON_DLP" || "$md_state" == "PARITY" ]]; then
+    if [[ "$md_resync_size" -gt 0 ]] && [[ "$md_resync_pos" -lt "$md_resync_size" ]]; then
+        is_checking=1
+    elif [[ "$md_state" == "STARTED" ]] && [[ "$md_resync_size" -gt 0 ]]; then
         is_checking=1
     fi
 
     if [[ $is_checking -eq 0 ]]; then
         # No check running — detect if one just finished
-        local last_uuid last_pct
-        read -r last_uuid last_pct < <(read_parity_state "$STATE_FILE")
+        local last_uuid last_pct last_start_line
+        read -r last_uuid last_pct last_start_line < <(read_parity_state "$STATE_FILE")
         if [[ "$last_uuid" != "none" ]]; then
             log "Parity check finished (was at ${last_pct}%)."
             if [[ "$NOTIFY_ON_COMPLETION" == "1" ]]; then
                 local kind="${md_resync_action:-parity check}"
-                local errors_msg=""
-                if [[ "${md_resync_errors:-0}" -gt 0 ]]; then
-                    errors_msg="Found ${md_resync_errors} sync error(s)."
+                local desc="The $kind has completed."
+                local importance="normal"
+                if [[ "$NOTIFY_ON_ERRORS" == "1" ]]; then
+                    local error_count
+                    error_count=$(count_parity_sync_errors_from_syslog "$last_start_line")
+                    if [[ "${error_count:-0}" -gt 0 ]]; then
+                        desc="The $kind has completed. Found ${error_count} parity/sync error(s) in syslog. Review the Unraid dashboard."
+                        importance="alert"
+                    else
+                        desc="The $kind has completed. No parity/sync errors detected in syslog."
+                    fi
                 fi
                 send_unraid_notify "Parity Check Complete" "Parity check finished" \
-                    "The $kind has completed.${errors_msg:+ $errors_msg}" \
-                    "${errors_msg:+alert}" || send_unraid_notify "Parity Check Complete" "Parity check finished" \
-                    "The $kind has completed. No errors detected." "normal"
+                    "$desc" "$importance"
             fi
-            if [[ "$NOTIFY_ON_ERRORS" == "1" ]] && [[ "${md_resync_errors:-0}" -gt 0 ]]; then
-                send_unraid_notify "Parity Check Errors" "Parity check found errors" \
-                    "${md_resync_errors} sync error(s) detected during the last parity check. Review the Unraid dashboard." \
-                    "alert"
-            fi
-            write_parity_state "$STATE_FILE" "none" 0
+            write_parity_state "$STATE_FILE" "none" 0 1
         fi
         log "No parity check in progress."
         return 0
@@ -210,29 +250,33 @@ main() {
 
     # Parity check IS running
     local current_pct=0 current_pos="${md_resync_pos:-0}" total_size="${md_resync_size:-1}"
+    local check_start_line
 
     if [[ "$total_size" -gt 0 ]]; then
         current_pct=$((current_pos * 100 / total_size))
     fi
     local kind="${md_resync_action:-parity check}"
-    local errors="${md_resync_errors:-0}"
-    local check_uuid="${md_resync_pos:-0}-${md_resync_size:-0}"
+    local check_uuid="${md_resync_action:-check}-${md_resync_size}"
 
     # Read last state
-    local last_uuid last_pct
-    read -r last_uuid last_pct < <(read_parity_state "$STATE_FILE")
+    local last_uuid last_pct last_start_line
+    read -r last_uuid last_pct last_start_line < <(read_parity_state "$STATE_FILE")
 
     # Detect if this is a new check
     if [[ "$last_uuid" == "none" || "$last_uuid" != "$check_uuid" ]]; then
+        check_start_line=$(get_syslog_line_count)
         log "New $kind detected: ${current_pct}% complete (position ${current_pos} / ${total_size})."
         if [[ "$NOTIFY_ON_START" == "1" ]]; then
             send_unraid_notify "Parity Check Start" "Parity check started" \
                 "A $kind has started. Current position: ${current_pct}%. Duration varies based on array size." \
                 "normal"
         fi
-        write_parity_state "$STATE_FILE" "$check_uuid" "$current_pct"
+        write_parity_state "$STATE_FILE" "$check_uuid" "$current_pct" "$check_start_line"
         last_pct=0
         last_uuid="$check_uuid"
+        last_start_line="$check_start_line"
+    else
+        check_start_line="$last_start_line"
     fi
 
     # Progress milestone check
@@ -247,7 +291,7 @@ main() {
             if [[ "$current_pct" -gt 0 ]]; then
                 # Read elapsed time from syslog
                 local elapsed_secs
-                elapsed_secs=$(grep "mdcmd.*check" /var/log/syslog 2>/dev/null | tail -1 | grep -oP 'elapsed=\K[0-9.]+' | awk '{print int($1)}' || echo 0)
+                elapsed_secs=$(grep "mdcmd.*check" /var/log/syslog 2>/dev/null | tail -1 | sed -n 's/.*elapsed=\([0-9.]*\).*/\1/p' | awk '{print int($1)}' || echo 0)
                 if [[ "$elapsed_secs" -gt 0 ]]; then
                     eta_secs=$((elapsed_secs * (100 - current_pct) / current_pct))
                 fi
@@ -257,16 +301,16 @@ main() {
 
             log "Progress milestone: ${current_pct}%${eta_str}."
             send_unraid_notify "Parity Check Progress" "Parity check: ${current_pct}%" \
-                "The $kind is ${current_pct}% complete${eta_str}. Errors so far: $errors." \
+                "The $kind is ${current_pct}% complete${eta_str}." \
                 "normal"
         fi
     fi
 
     # Write updated state
-    write_parity_state "$STATE_FILE" "$check_uuid" "$current_pct"
+    write_parity_state "$STATE_FILE" "$check_uuid" "$current_pct" "$check_start_line"
 
-    log "$kind in progress: ${current_pct}% (errors: $errors)"
+    log "$kind in progress: ${current_pct}%"
     return 0
 }
 
-main "$@"
+main "$@" || exit 1

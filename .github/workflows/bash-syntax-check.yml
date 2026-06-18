@@ -44,10 +44,11 @@ jobs:
       - name: Verify folder copies match root scripts
         run: python3 .github/scripts/verify_folder_sync.py
 
-      - name: Note folder drift (auto-synced on merge to main)
+      - name: Fail on uncommitted folder drift
         if: github.event_name == 'pull_request'
         run: |
           if ! git diff --quiet user-scripts-folders/; then
-            echo "::notice title=User Scripts folders::user-scripts-folders/ differs from generated output. It will be updated automatically when this merges to main."
+            echo "::error title=User Scripts folders::Regenerate with python3 .github/scripts/generate_folders.py and commit user-scripts-folders/"
             git diff --stat user-scripts-folders/
+            exit 1
           fi

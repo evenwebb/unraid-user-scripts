@@ -131,13 +131,21 @@ main() {
         last_count=$(read_oom_state "$STATE_FILE")
     fi
 
+    if [[ "$ENABLE_STATE_TRACKING" == "1" && "$oom_count" -lt "$last_count" ]]; then
+        log "OOM count decreased ($last_count -> $oom_count); treating as log rotation or cleared syslog. Updating baseline, no notification."
+        write_oom_state "$STATE_FILE" "$oom_count" || true
+        last_count=$oom_count
+    fi
+
     if [[ "$oom_count" -gt 0 ]]; then
         log "OOM error(s) found in syslog ($oom_count occurrence(s); last recorded: $last_count)."
 
         local process_info=""
         if [[ "$SHOW_KILLED_PROCESSES" == "1" ]]; then
             local killed
-            killed=$(grep -E "(Killed process|oom_reaper.*victim)" "$SYSLOG_PATH" 2>/dev/null | grep -oP '(?:Killed process \d+ \(|victim:)\K[^)\s]+' | sort -u | paste -sd ', ' - 2>/dev/null || echo "")
+            killed=$(grep -E "(Killed process|oom_reaper.*victim)" "$SYSLOG_PATH" 2>/dev/null \
+                | sed -nE 's/.*Killed process [0-9]+ \(([^) ]+)\).*/\1/p; s/.*victim:([^) ]+).*/\1/p' \
+                | sort -u | paste -sd ', ' - 2>/dev/null || echo "")
             if [[ -n "$killed" ]]; then
                 process_info="  Killed process(es): $killed"
             fi
@@ -155,14 +163,15 @@ main() {
             if [[ -x "$NOTIFY_SCRIPT" ]]; then
                 local desc="OOM error found in syslog ($oom_count occurrence(s))."
                 [[ -n "$process_info" ]] && desc+=$'\n'"$process_info"
-                if ! "$NOTIFY_SCRIPT" -e "OOM Checker" -s "Checked for OOM in syslog" -d "$desc" -i "alert"; then
+                if "$NOTIFY_SCRIPT" -e "OOM Checker" -s "Checked for OOM in syslog" -d "$desc" -i "alert"; then
+                    if [[ "$ENABLE_STATE_TRACKING" == "1" ]]; then
+                        write_oom_state "$STATE_FILE" "$oom_count" || true
+                    fi
+                else
                     log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
                 fi
             else
                 log_err "NOTIFY_SCRIPT is not executable — alert was not sent. Check NOTIFY_SCRIPT in this script."
-            fi
-            if [[ "$ENABLE_STATE_TRACKING" == "1" ]]; then
-                write_oom_state "$STATE_FILE" "$oom_count" || true
             fi
         fi
         return 1
@@ -175,4 +184,4 @@ main() {
     return 0
 }
 
-main "$@"
+main "$@" || exit 1

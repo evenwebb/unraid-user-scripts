@@ -197,6 +197,19 @@ _sonarr_http_get() {
     return 0
 }
 
+_sonarr_fetch_all_series() {
+    local page=1 page_size=250 chunk combined='[]' count
+    while true; do
+        chunk=$(_sonarr_http_get "/api/v3/series?page=${page}&pageSize=${page_size}&sortKey=sortTitle&sortDirection=asc" "loading series list (page ${page})") || return 1
+        count=$(printf '%s' "$chunk" | jq 'length')
+        [[ "$count" -eq 0 ]] && break
+        combined=$(jq -s 'add' <<< "$combined" "$chunk")
+        [[ "$count" -lt "$page_size" ]] && break
+        page=$((page + 1))
+    done
+    printf '%s' "$combined"
+}
+
 _verify_sonarr_connection() {
     local payload app_name
     payload="$(_sonarr_http_get "/api/v3/system/status" "checking the connection")" || return 1
@@ -356,7 +369,7 @@ main() {
     log "Sonarr Quality Profile Updater - processing: $processing"
 
     local series_json
-    series_json=$(_sonarr_http_get "/api/v3/series" "loading the series list") || return 1
+    series_json=$(_sonarr_fetch_all_series) || return 1
 
     local TOTAL=0
     local -a to_update=()
@@ -460,7 +473,9 @@ main() {
         cmd_body=$(jq -n --argjson ids "$ids_json" '{name: "SeriesSearch", seriesIds: $ids}')
         local cmd_result code curl_err
         _sonarr_curl_cmd
-        curl_err=$(mktemp)
+        curl_err=$(mktemp) || {
+            log_err "Failed to create temp file for search command."
+        }
         if [[ -n "$curl_err" ]]; then
             cmd_result=$("${SONARR_CURL[@]}" -X POST -H "X-Api-Key: $SONARR_API_KEY" -H "Content-Type: application/json" \
                 -d "$cmd_body" "$SONARR_URL/api/v3/command" 2>"$curl_err") || {

@@ -4,7 +4,7 @@
 # Sync Sonarr/Radarr queues with NZBGet; remove stale items and trigger search.
 #
 # Description:
-#   Removes *arr queue entries when the download left NZBGet, optionally blocklists, and searches again.
+#   Removes Radarr/Sonarr queue entries when the download left NZBGet, optionally blocklists, and searches again.
 #
 # Usage:
 #   ./queue-sync-nzbget.sh
@@ -47,6 +47,8 @@ SONARR_API_KEY=""       # Settings → General → API Key
 NZBGET_URL=""           # e.g. http://192.168.1.10:6789 (no trailing slash)
 NZBGET_USER="nzbget"    # Settings → Security → Control username
 NZBGET_PASS=""          # Settings → Security → Control password
+# Note: curl -u puts credentials on the command line; they may appear in ps/process lists.
+# Use a dedicated NZBGet control user with a strong password (netrc is not used here).
 
 # --- Behavior ---
 DRY_RUN="1"                # 1 = preview only, no removals or searches (default)
@@ -55,7 +57,9 @@ CLEAR_NZBGET_FAILED="0"    # 1 = clear failed downloads from NZBGet history
 BLOCKLIST_ENABLED="1"      # 1 = blocklist release when removing from Radarr/Sonarr queue; 0 = remove only
 SKIP_RADARR="0"            # 1 = skip Radarr processing
 SKIP_SONARR="0"            # 1 = skip Sonarr processing
-SAFE_EMPTY_QUEUE="0"       # 1 = skip Radarr/Sonarr removals when NZBGet queue is empty
+# 1 = skip Radarr/Sonarr queue removals when NZBGet queue is empty (avoids false stale removals if
+# NZBGet was restarted, unreachable, or legitimately has no active downloads to match).
+SAFE_EMPTY_QUEUE="0"
 LOCK_FILE=""               # Prevent concurrent runs (e.g. /tmp/queue-sync-nzbget.lock)
 MAX_REMOVALS_PER_RUN="0"   # Cap removals per run; 0 = no limit
 RATE_LIMIT_DELAY="0"       # Seconds between API calls when removing; 0 = no delay
@@ -79,7 +83,7 @@ log_err() {
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
-# Log a line built with printf so *arr titles (user/API-controlled) are never
+# Log a line built with printf so Radarr/Sonarr titles (user/API-controlled) are never
 # re-parsed as shell (titles may contain $(), backticks, or %).
 log_fmt() {
     local _msg
@@ -143,74 +147,6 @@ sonarr_queue_fields() {
       (.episodes[]?.episodeId)
     ] | map(select(. != null and . != "")) | unique | join(","))), (.seriesId // .series?.id // "")] | @tsv'
 }
-
-# Runtime normalization and validation (not part of editable config)
-
-# Strip trailing slashes
-RADARR_URL="${RADARR_URL%/}"
-SONARR_URL="${SONARR_URL%/}"
-NZBGET_URL="${NZBGET_URL%/}"
-NZBGET_JSONRPC="${NZBGET_URL}/jsonrpc"
-
-# Require at least NZBGet to be configured (script is NZBGet-centric)
-if [[ -z "$NZBGET_URL" || -z "$NZBGET_PASS" ]]; then
-    log_err "NZBGet is not configured. Set NZBGET_URL and NZBGET_PASS at the top of this script."
-    exit 1
-fi
-for cmd in curl jq; do
-    if ! command -v "$cmd" &>/dev/null; then
-        log_err "Required program '$cmd' is not installed on this server."
-        exit 1
-    fi
-done
-
-# Validate URLs (reject file://, relative paths, etc.)
-_require_http_url "NZBGET_URL" "$NZBGET_URL"
-_validate_enabled_arr "Radarr" "SKIP_RADARR" "RADARR_URL" "RADARR_API_KEY"
-_validate_enabled_arr "Sonarr" "SKIP_SONARR" "SONARR_URL" "SONARR_API_KEY"
-
-if [[ -z "$NZBGET_USER" ]]; then
-    log_err "NZBGET_USER is empty. Set it to the Control Username from NZBGet → Settings → Security."
-    exit 1
-fi
-
-# Validate LOG_FILE path (reject path traversal)
-if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    log_err "LOG_FILE path is not allowed. Choose a normal file path without '..'."
-    exit 1
-fi
-
-# Validate numeric config (prevent infinite loops)
-if [[ ! "$SEARCH_IDS_CHUNK_SIZE" =~ ^[1-9][0-9]*$ ]] || [[ ! "$QUEUE_PAGE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
-    log_err "SEARCH_IDS_CHUNK_SIZE and QUEUE_PAGE_SIZE must be whole numbers greater than zero."
-    exit 1
-fi
-if [[ ! "$RETRY_COUNT" =~ ^[0-9]+$ ]] || [[ ! "$MAX_REMOVALS_PER_RUN" =~ ^[0-9]+$ ]] || [[ ! "$RATE_LIMIT_DELAY" =~ ^[0-9]+$ ]] || [[ ! "$CLEAR_NZBGET_AGE_DAYS" =~ ^[0-9]+$ ]]; then
-    log_err "RETRY_COUNT, MAX_REMOVALS_PER_RUN, RATE_LIMIT_DELAY, and CLEAR_NZBGET_AGE_DAYS must be whole numbers (0 or greater)."
-    exit 1
-fi
-
-# Acquire lock if LOCK_FILE is set
-if [[ -n "$LOCK_FILE" ]]; then
-    if [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
-        log_err "LOCK_FILE path is not allowed. Choose a normal file path without '..'."
-        exit 1
-    fi
-    lock_dir=$(dirname "$LOCK_FILE")
-    if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
-        log_err "LOCK_FILE folder does not exist: $lock_dir"
-        exit 1
-    fi
-    if ! command -v flock &>/dev/null; then
-        log_err "LOCK_FILE is set but the 'flock' command is not available on this server."
-        exit 1
-    fi
-    exec 200>"$LOCK_FILE"
-    if ! flock -n 200; then
-        log_err "Another copy of this script is already running. If that is wrong, delete the lock file: $LOCK_FILE"
-        exit 1
-    fi
-fi
 
 # Wrapper for curl with retry; pass through all curl args
 _curl() {
@@ -376,35 +312,6 @@ _arr_queue_delete() {
     return 0
 }
 
-# --- Fetch NZBGet queue IDs ---
-nzbget_ids_raw=$(_nzbget_rpc "reading the NZBGet download queue" '{"jsonrpc":"2.0","method":"listgroups","params":[0],"id":1}') || exit 1
-
-if [[ "$(jq -r '.result | type' <<< "$nzbget_ids_raw" 2>/dev/null)" != "array" ]]; then
-  log_err "NZBGet sent an unexpected response while reading the download queue. Check NZBGET_URL in this script (currently ${NZBGET_URL})."
-  exit 1
-fi
-nzbget_ids=$(jq -r '.result[]?.NZBID // empty' <<< "$nzbget_ids_raw" 2>/dev/null)
-
-# Build lookup set for O(1) check (avoids linear scan per *arr queue item)
-declare -A nzbget_set=()
-while IFS= read -r nid; do
-    [[ -n "$nid" ]] && nzbget_set[$nid]=1
-done <<< "$nzbget_ids"
-
-# Global removals counter for MAX_REMOVALS_PER_RUN
-removals_count=0
-
-# Summary counters (useful for DRY_RUN decisions)
-radarr_stale_count=0
-sonarr_stale_count=0
-radarr_removed_count=0
-sonarr_removed_count=0
-radarr_remove_failures=0
-sonarr_remove_failures=0
-radarr_unique_movies_search=0
-sonarr_unique_episodes_search=0
-sonarr_unique_series_search=0
-
 # --- Clear failed downloads from NZBGet history ---
 clear_nzbget_failed() {
   [[ "$CLEAR_NZBGET_FAILED" != "1" ]] && return 0
@@ -494,7 +401,10 @@ _arr_queue() {
 process_radarr() {
   [[ "$SKIP_RADARR" == "1" ]] && return 0
   _arr_verify_auth "Radarr" "$RADARR_URL" "$RADARR_API_KEY" || return 1
-  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && { log "Radarr: skipped (SAFE_EMPTY_QUEUE, NZBGet queue empty)"; return 0; }
+  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && {
+    log "Radarr: skipped — SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove *arr items without NZBGet queue entries to match)"
+    return 0
+  }
   local records
   records=$(_arr_queue "Radarr" "$RADARR_URL" "$RADARR_API_KEY") || return 1
   local to_remove movie_ids
@@ -571,7 +481,10 @@ process_radarr() {
 process_sonarr() {
   [[ "$SKIP_SONARR" == "1" ]] && return 0
   _arr_verify_auth "Sonarr" "$SONARR_URL" "$SONARR_API_KEY" || return 1
-  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && { log "Sonarr: skipped (SAFE_EMPTY_QUEUE, NZBGet queue empty)"; return 0; }
+  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && {
+    log "Sonarr: skipped — SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove *arr items without NZBGet queue entries to match)"
+    return 0
+  }
   local records
   records=$(_arr_queue "Sonarr" "$SONARR_URL" "$SONARR_API_KEY") || return 1
   local to_remove episode_ids series_ids
@@ -664,16 +577,109 @@ process_sonarr() {
   return 0
 }
 
-# --- Main ---
-exit_code=0
-log "Queue sync start (NZBGet queue has ${#nzbget_set[@]} item(s))"
-[[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no removals or searches will be performed"
-clear_nzbget_failed || exit_code=1
-process_radarr || exit_code=1
-process_sonarr || exit_code=1
-log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count remove_failures=$radarr_remove_failures unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count remove_failures=$sonarr_remove_failures unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
-if [[ "$exit_code" -ne 0 ]]; then
-  log_err "Queue sync finished with errors — see the ERROR lines above for what to fix."
-  exit 1
-fi
-log "Queue sync done"
+main() {
+    local exit_code=0 nzbget_ids_raw lock_dir
+
+    # Runtime normalization (not part of editable config)
+    RADARR_URL="${RADARR_URL%/}"
+    SONARR_URL="${SONARR_URL%/}"
+    NZBGET_URL="${NZBGET_URL%/}"
+    NZBGET_JSONRPC="${NZBGET_URL}/jsonrpc"
+
+    if [[ -z "$NZBGET_URL" || -z "$NZBGET_PASS" ]]; then
+        log_err "NZBGet is not configured. Set NZBGET_URL and NZBGET_PASS at the top of this script."
+        exit 1
+    fi
+    for cmd in curl jq; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log_err "Required program '$cmd' is not installed on this server."
+            exit 1
+        fi
+    done
+
+    _require_http_url "NZBGET_URL" "$NZBGET_URL"
+    _validate_enabled_arr "Radarr" "SKIP_RADARR" "RADARR_URL" "RADARR_API_KEY"
+    _validate_enabled_arr "Sonarr" "SKIP_SONARR" "SONARR_URL" "SONARR_API_KEY"
+
+    if [[ -z "$NZBGET_USER" ]]; then
+        log_err "NZBGET_USER is empty. Set it to the Control Username from NZBGet → Settings → Security."
+        exit 1
+    fi
+
+    if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
+        log_err "LOG_FILE path is not allowed. Choose a normal file path without '..'."
+        exit 1
+    fi
+
+    if [[ ! "$SEARCH_IDS_CHUNK_SIZE" =~ ^[1-9][0-9]*$ ]] || [[ ! "$QUEUE_PAGE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+        log_err "SEARCH_IDS_CHUNK_SIZE and QUEUE_PAGE_SIZE must be whole numbers greater than zero."
+        exit 1
+    fi
+    if [[ ! "$RETRY_COUNT" =~ ^[0-9]+$ ]] || [[ ! "$MAX_REMOVALS_PER_RUN" =~ ^[0-9]+$ ]] || [[ ! "$RATE_LIMIT_DELAY" =~ ^[0-9]+$ ]] || [[ ! "$CLEAR_NZBGET_AGE_DAYS" =~ ^[0-9]+$ ]]; then
+        log_err "RETRY_COUNT, MAX_REMOVALS_PER_RUN, RATE_LIMIT_DELAY, and CLEAR_NZBGET_AGE_DAYS must be whole numbers (0 or greater)."
+        exit 1
+    fi
+
+    if [[ -n "$LOCK_FILE" ]]; then
+        if [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
+            log_err "LOCK_FILE path is not allowed. Choose a normal file path without '..'."
+            exit 1
+        fi
+        lock_dir=$(dirname "$LOCK_FILE")
+        if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
+            log_err "LOCK_FILE folder does not exist: $lock_dir"
+            exit 1
+        fi
+        if ! command -v flock &>/dev/null; then
+            log_err "LOCK_FILE is set but the 'flock' command is not available on this server."
+            exit 1
+        fi
+        exec 200>"$LOCK_FILE"
+        if ! flock -n 200; then
+            log_err "Another copy of this script is already running. If that is wrong, delete the lock file: $LOCK_FILE"
+            exit 1
+        fi
+    fi
+
+    nzbget_ids_raw=$(_nzbget_rpc "reading the NZBGet download queue" '{"jsonrpc":"2.0","method":"listgroups","params":[0],"id":1}') || exit 1
+
+    if [[ "$(jq -r '.result | type' <<< "$nzbget_ids_raw" 2>/dev/null)" != "array" ]]; then
+        log_err "NZBGet sent an unexpected response while reading the download queue. Check NZBGET_URL in this script (currently ${NZBGET_URL})."
+        exit 1
+    fi
+
+    # Match Radarr/Sonarr downloadId against NZBID, NZBName, and File from listgroups
+    declare -gA nzbget_set=()
+    local nzbget_queue_count=0
+    while IFS=$'\t' read -r nzbid nzbname file; do
+        nzbget_queue_count=$((nzbget_queue_count + 1))
+        [[ -n "$nzbid" ]] && nzbget_set["$nzbid"]=1
+        [[ -n "$nzbname" ]] && nzbget_set["$nzbname"]=1
+        [[ -n "$file" ]] && nzbget_set["$file"]=1
+    done < <(jq -r '.result[]? | [(.NZBID // "" | tostring), (.NZBName // "" | tostring), (.File // "" | tostring)] | @tsv' <<< "$nzbget_ids_raw" 2>/dev/null)
+
+    removals_count=0
+    radarr_stale_count=0
+    sonarr_stale_count=0
+    radarr_removed_count=0
+    sonarr_removed_count=0
+    radarr_remove_failures=0
+    sonarr_remove_failures=0
+    radarr_unique_movies_search=0
+    sonarr_unique_episodes_search=0
+    sonarr_unique_series_search=0
+
+    log "Queue sync start (NZBGet queue has ${nzbget_queue_count} active download(s))"
+    [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no removals or searches will be performed"
+    clear_nzbget_failed || exit_code=1
+    process_radarr || exit_code=1
+    process_sonarr || exit_code=1
+    log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count remove_failures=$radarr_remove_failures unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count remove_failures=$sonarr_remove_failures unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
+    if [[ "$exit_code" -ne 0 ]]; then
+        log_err "Queue sync finished with errors — see the ERROR lines above for what to fix."
+        exit 1
+    fi
+    log "Queue sync done"
+}
+
+main "$@"

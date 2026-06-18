@@ -4,7 +4,7 @@
 # Empty the TV shows download folder (with optional age filter).
 #
 # Description:
-#   Deletes files under DIR_PATH. Use DRY_RUN first on production systems.
+#   Deletes top-level files/folders under DIR_PATH. Use DRY_RUN first on production systems.
 #
 # Usage:
 #   ./clear-tv-shows-download-folder.sh
@@ -14,15 +14,13 @@
 # Configuration (edit script variables below):
 #   - DIR_PATH: folder to clear
 #   - MIN_AGE_MINUTES: skip files newer than N minutes (0 = all)
-#   - DRY_RUN: 1 = preview only (default), 0 = delete files
-#   - NOTIFY_SCRIPT: optional completion notify
-#   - LOG_FILE: optional log file
+#   - DRY_RUN / NOTIFY_SCRIPT / LOG_FILE
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
 # Author: https://github.com/evenwebb
 # Project: https://github.com/evenwebb/unraid-user-scripts
-# License: GPL-3.0
+# License: GPL-3.0 · https://github.com/evenwebb/unraid-user-scripts
 
 set -u
 set -o pipefail
@@ -49,9 +47,7 @@ LOG_FILE=""
 ###############################################################################
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
-    _ui_msg="Error: LOG_FILE path invalid."
-    echo "$_ui_msg"
-    echo "$_ui_msg" >&2
+    echo "Error: LOG_FILE path invalid." >&2
     exit 1
 fi
 if [[ -n "$LOG_FILE" ]]; then
@@ -59,54 +55,58 @@ if [[ -n "$LOG_FILE" ]]; then
     exec > >(tee -a "$LOG_FILE")
 fi
 
-###############################################################################
-
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 log_err() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
-    echo "$msg"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
 }
 
-is_safe_notify_path() {
+is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
     [[ "$p" == *".."* || "$p" == "-"* || "$p" == *$'\n'* ]] && return 1
     return 0
 }
 
-send_unraid_notify() {
-    local event="$1" subject="$2" description="$3"
-    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
-    if ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
-        log_err "NOTIFY_SCRIPT path is not allowed. Check NOTIFY_SCRIPT in this script."
-        return 1
-    fi
-    if ! "$NOTIFY_SCRIPT" -e "$event" -s "$subject" -d "$description" -i "normal"; then
-        log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
-        return 1
-    fi
-}
-
-# Reject paths that are too dangerous (root, /mnt, too shallow, .. or - prefix)
 is_safe_delete_path() {
     local p="$1"
-    [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
-    [[ "$p" == "/" ]] && return 1
-    [[ "$p" == "/mnt" ]] && return 1
+    is_safe_path "$p" || return 1
+    [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
     [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
     return 0
 }
 
-clear_directory_contents() {
-    local dir="$1"
+_human_bytes() {
+    local b="${1:-0}"
+    if [[ "$b" -ge 1073741824 ]]; then echo "$((b / 1073741824))G"
+    elif [[ "$b" -ge 1048576 ]]; then echo "$((b / 1048576))M"
+    elif [[ "$b" -ge 1024 ]]; then echo "$((b / 1024))K"
+    else echo "${b}B"; fi
+}
+
+send_notify() {
+    local subject="$1" description="$2"
+    [[ -z "$NOTIFY_SCRIPT" || ! -x "$NOTIFY_SCRIPT" ]] && return 0
+    if ! is_safe_path "$NOTIFY_SCRIPT"; then
+        log_err "NOTIFY_SCRIPT path is not allowed."
+        return 1
+    fi
+    if ! "$NOTIFY_SCRIPT" -e "Clear TV Shows Download Folder" -s "$subject" -d "$description" -i "normal"; then
+        log_err "Unraid notification could not be sent."
+        return 1
+    fi
+}
+
+clear_directory_top_level() {
+    local dir="$1" item
     local age_args=()
     if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
         age_args=(-mmin "+${MIN_AGE_MINUTES}")
     fi
-    find "$dir" -mindepth 1 -maxdepth 1 "${age_args[@]}" -exec rm -rf -- {} + 2>/dev/null
+    while IFS= read -r -d '' item; do
+        rm -rf -- "$item"
+    done < <(find "$dir" -mindepth 1 -maxdepth 1 "${age_args[@]}" -print0 2>/dev/null)
 }
 
 main() {
@@ -118,8 +118,7 @@ main() {
         log_err "Directory not found: $DIR_PATH"
         return 1
     fi
-
-    if [[ -n "$NOTIFY_SCRIPT" ]] && ! is_safe_notify_path "$NOTIFY_SCRIPT"; then
+    if [[ -n "$NOTIFY_SCRIPT" ]] && ! is_safe_path "$NOTIFY_SCRIPT"; then
         log_err "NOTIFY_SCRIPT path invalid."
         return 1
     fi
@@ -127,31 +126,39 @@ main() {
         log_err "DRY_RUN must be 0 or 1."
         return 1
     fi
+    if [[ ! "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+        log_err "MIN_AGE_MINUTES must be a whole number (0 or greater)."
+        return 1
+    fi
 
-    # Measure before deletion
-    local age_args=()
-    if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+    local age_args=() before_count after_count deleted_count
+    local before_bytes after_bytes freed_bytes summary
+    if [[ "$MIN_AGE_MINUTES" -gt 0 ]]; then
         age_args=(-mmin "+${MIN_AGE_MINUTES}")
     fi
-    before_count=$(find "$DIR_PATH" -mindepth 1 "${age_args[@]}" 2>/dev/null | wc -l)
-    before_size=$(du -sh "$DIR_PATH" 2>/dev/null | awk '{print $1}')
+    before_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 "${age_args[@]}" 2>/dev/null | wc -l | tr -d ' ')
+    before_bytes=$(du -sb "$DIR_PATH" 2>/dev/null | awk '{print $1}')
+    [[ -z "$before_bytes" || ! "$before_bytes" =~ ^[0-9]+$ ]] && before_bytes=0
 
     if [[ "$DRY_RUN" == "1" ]]; then
-        summary="DRY-RUN: would delete $before_count items in TV shows download folder, freeing $before_size"
+        summary="DRY-RUN: would delete $before_count top-level item(s) in TV shows download folder, freeing about $(_human_bytes "$before_bytes")"
         log "$summary"
-        send_unraid_notify "Clear TV Shows Download Folder" "TV Show Downloads Clear Preview" "$summary"
+        send_notify "TV Downloads Clear Preview" "$summary"
         return 0
     fi
 
-    clear_directory_contents "$DIR_PATH" || { log_err "clear failed for $DIR_PATH"; return 1; }
+    clear_directory_top_level "$DIR_PATH" || { log_err "clear failed for $DIR_PATH"; return 1; }
 
-    # Measure after deletion (should be 0, but accounts for race conditions)
-    after_count=$(find "$DIR_PATH" -mindepth 1 2>/dev/null | wc -l)
+    after_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+    after_bytes=$(du -sb "$DIR_PATH" 2>/dev/null | awk '{print $1}')
+    [[ -z "$after_bytes" || ! "$after_bytes" =~ ^[0-9]+$ ]] && after_bytes=0
     deleted_count=$((before_count - after_count))
+    freed_bytes=$((before_bytes - after_bytes))
+    [[ "$freed_bytes" -lt 0 ]] && freed_bytes=0
 
-    summary="Deleted $deleted_count items in TV shows download folder, freed $before_size"
+    summary="Deleted $deleted_count top-level item(s) in TV shows download folder, freed about $(_human_bytes "$freed_bytes")"
     log "$summary"
-    send_unraid_notify "Clear TV Shows Download Folder" "TV Show Downloads Cleared" "$summary"
+    send_notify "TV Downloads Cleared" "$summary"
 }
 
-main "$@"
+main "$@" || exit 1

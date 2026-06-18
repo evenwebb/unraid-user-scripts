@@ -17,6 +17,7 @@
 #   - FETCH_UPDATES / CLEAR_CACHE / INSTALL_MISSING
 #   - DRY_RUN / BACKUP_DIR / WORK_DIR
 #   - RESET_CONFIG / CONFIG_CONFLICT_MODE / SHOW_CONFIG_DIFF
+#   - LOCK_FILE / BACKUP_KEEP_COUNT
 #   - INCLUDE_FOLDERS / EXCLUDE_FOLDERS
 #   - DOWNLOAD_CONNECT_TIMEOUT / DOWNLOAD_MAX_TIME
 #
@@ -95,6 +96,12 @@ INCLUDE_FOLDERS=()
 
 # Selective update: skip these folder names (empty = none excluded)
 EXCLUDE_FOLDERS=()
+
+# Lock file to prevent concurrent updater runs (empty = no lock)
+LOCK_FILE="/tmp/user-scripts-updater.lock"
+
+# Keep at most N timestamped backups per script folder (0 = unlimited)
+BACKUP_KEEP_COUNT="20"
 
 ###############################################################################
 
@@ -382,32 +389,36 @@ prepare_source_folders() {
 }
 
 get_config_range() {
-  # Prints: "<start_line> <end_line>" or nothing if marker not found.
-  # Strip CR so CRLF on flash does not break the EDIT marker match.
-  # Marker line tolerates trailing text (paste/GUI quirks) as long as it still looks like
-  # EDIT ... FOR YOUR ... SETUP.
+  # Prints: "<start_line> <end_line>" — content between EDIT markers (####### blocks).
   local file="$1"
-  local line lineno=0 start=0 end=0
+  local line lineno=0 phase=0 start=0 end=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     lineno=$((lineno + 1))
-    if [[ $start -eq 0 ]]; then
-      if [[ "$line" =~ ^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP ]]; then
-        start=$((lineno + 1))
-      fi
-      continue
-    fi
-
-    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{ ]]; then
-      end=$((lineno - 1))
-      printf '%s %s\n' "$start" "$end"
-      return 0
-    fi
+    case $phase in
+      0)
+        [[ "$line" =~ ^#[[:space:]]*EDIT[[:space:]]+FOR[[:space:]]+YOUR[[:space:]]+SETUP ]] && phase=1
+        ;;
+      1)
+        [[ "$line" =~ ^#[[:space:]]*#{5,}[[:space:]]*$ ]] && phase=2
+        ;;
+      2)
+        if [[ $start -eq 0 ]]; then
+          [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+          start=$lineno
+        fi
+        if [[ "$line" =~ ^#[[:space:]]*#{5,}[[:space:]]*$ ]]; then
+          end=$((lineno - 1))
+          while [[ $end -ge $start ]]; do
+            line=$(sed -n "${end}p" "$file" | tr -d '\r')
+            [[ "$line" =~ ^[[:space:]]*$ ]] && end=$((end - 1)) || break
+          done
+          [[ $start -le $end ]] && printf '%s %s\n' "$start" "$end"
+          return 0
+        fi
+        ;;
+    esac
   done < "$file"
-
-  if [[ $start -gt 0 ]]; then
-    printf '%s %s\n' "$start" "$lineno"
-  fi
 }
 
 extract_config_block() {
@@ -528,6 +539,36 @@ config_block_text_changed() {
   [[ "$dest_sig" != "$src_sig" ]]
 }
 
+log_config_merge_diff() {
+  local dest_script="$1" src_script="$2" folder_label="$3"
+  [[ "$SHOW_CONFIG_DIFF" == "1" ]] || return 0
+  local dest_block src_block
+  dest_block="$(extract_config_block "$dest_script" || true)"
+  src_block="$(extract_config_block "$src_script" || true)"
+  [[ -z "$dest_block" || -z "$src_block" ]] && return 0
+  declare -A dest_map=()
+  build_dest_assignment_map dest_map "$dest_block"
+  local line key src_val dest_val
+  while IFS= read -r line; do
+    line_is_assignment "$line" || continue
+    key="$(assignment_key "$line")"
+    src_val="$line"
+    if line_starts_multiline_array "$line"; then
+      src_val="$line"$'\n'
+      while IFS= read -r line; do
+        src_val+="$line"$'\n'
+        line_is_array_close "$line" && break
+      done
+    fi
+    dest_val="${dest_map[$key]:-}"
+    if [[ -z "$dest_val" ]]; then
+      log "Config diff ($folder_label): + $key (new upstream variable)"
+    elif [[ "$dest_val" != "$src_val" && "$dest_val" != "${src_val%$'\n'}" ]]; then
+      log "Config diff ($folder_label): ~ $key (local differs from upstream)"
+    fi
+  done <<<"$src_block"
+}
+
 merge_config_blocks() {
   # Usage: merge_config_blocks <dest_existing_script> <src_new_script> <out_path>
   #
@@ -588,9 +629,12 @@ merge_config_blocks() {
 
       if [[ -n "${dest_by_key[$key]:-}" ]]; then
         MERGE_KEPT=$((MERGE_KEPT + 1))
-        # Multi-line blocks already end with newline; avoid doubling blank lines.
-        merged_block+="${dest_by_key[$key]}"
-        [[ "${dest_by_key[$key]}" == *$'\n' ]] || merged_block+=$'\n'
+        local chosen="${dest_by_key[$key]}"
+        if [[ "$CONFIG_CONFLICT_MODE" == "use-upstream" ]]; then
+          chosen="$src_block_text"
+        fi
+        merged_block+="$chosen"
+        [[ "$chosen" == *$'\n' ]] || merged_block+=$'\n'
         used["$key"]=1
       else
         MERGE_NEW=$((MERGE_NEW + 1))
@@ -644,13 +688,27 @@ merge_config_blocks() {
 backup_file() {
   local src="$1"
   local rel="$2"
-  local base
+  local base stamp out_dir
   base="$(basename "$src")"
-  local stamp
   stamp="$(date +%Y%m%d-%H%M%S)"
-  local out_dir="$BACKUP_DIR/$rel"
+  out_dir="$BACKUP_DIR/$rel"
   mkdir -p "$out_dir" 2>/dev/null || true
   cp "$src" "$out_dir/$base.$stamp.bak"
+  if [[ "$BACKUP_KEEP_COUNT" =~ ^[0-9]+$ ]] && [[ "$BACKUP_KEEP_COUNT" -gt 0 ]]; then
+    local old_backups count
+    old_backups=$(find "$out_dir" -maxdepth 1 -name "$base.*.bak" -type f 2>/dev/null | sort -r)
+    count=0
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      count=$((count + 1))
+      [[ $count -gt $BACKUP_KEEP_COUNT ]] && rm -f "$f"
+    done <<< "$old_backups"
+  fi
+}
+
+script_is_user_scripts_updater() {
+  local f="$1"
+  head -n 5 "$f" 2>/dev/null | grep -q '^# user-scripts-updater\.sh'
 }
 
 atomic_replace_file() {
@@ -726,6 +784,11 @@ sync_one_folder() {
       return 3
     fi
     if [[ "$DRY_RUN" == "1" ]]; then
+      local _install_merged
+      _install_merged="$(mktemp)"
+      cp "$src_script" "$_install_merged"
+      validate_bash_script "$_install_merged" "would-install $folder_label" || { rm -f "$_install_merged"; return 1; }
+      rm -f "$_install_merged"
       log "Would install: $folder_label"
     else
       log "Installed: $folder_label"
@@ -748,8 +811,7 @@ sync_one_folder() {
     if [[ "$RESET_CONFIG" == "1" ]]; then
       cp "$src_script" "$merged"
     else
-      # If dest matches upstream (normalized), merge cannot change anything — skip
-      # rebuild so we don't false-positive on newline churn inside merge_config_blocks.
+      log_config_merge_diff "$dest_script" "$src_script" "$folder_label"
       if files_equal "$dest_script" "$src_script"; then
         cp "$src_script" "$merged"
       else
@@ -764,7 +826,7 @@ sync_one_folder() {
   # User Scripts Updater: after editing only EDIT-block settings, merge output can
   # still differ from the plugin-saved file (formatting). If the ZIP and flash
   # already agree outside the editable region, keep the on-disk script.
-  if [[ -f "$dest_script" && "$(basename "$dest_folder")" == "User Scripts Updater" ]] &&
+  if [[ -f "$dest_script" ]] && script_is_user_scripts_updater "$dest_script" &&
     ! files_equal "$merged" "$dest_script" &&
     upstream_heads_and_tails_match "$dest_script" "$src_script"; then
     cp "$dest_script" "$merged"
@@ -874,6 +936,27 @@ main() {
     log_err "SHOW_CONFIG_DIFF must be 0 or 1"
     return 1
   fi
+  if [[ ! "$BACKUP_KEEP_COUNT" =~ ^[0-9]+$ ]]; then
+    log_err "BACKUP_KEEP_COUNT must be a whole number (0 = unlimited)"
+    return 1
+  fi
+
+  if [[ -n "$LOCK_FILE" ]]; then
+    if [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
+      log_err "LOCK_FILE path is not allowed."
+      return 1
+    fi
+    if command -v flock >/dev/null 2>&1; then
+      exec 9>"$LOCK_FILE"
+      if ! flock -n 9; then
+        log_err "Another updater run is in progress (lock: $LOCK_FILE)"
+        return 1
+      fi
+    else
+      log "Note: flock not available; concurrent updater runs are not prevented."
+    fi
+  fi
+
   local src_folders
   # prepare_source_folders returns the source path on stdout. Harden against any
   # unexpected extra output by taking the last line only.

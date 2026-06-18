@@ -10,7 +10,7 @@
 #   ./delete-dangling-images.sh
 #
 # Configuration (edit script variables below):
-#   - No user settings — runs docker rmi on dangling images
+#   - LOG_FILE: optional log file (empty = stdout only)
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -25,14 +25,35 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# No user configuration — prunes dangling Docker images.
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
+
+# Uses `docker image prune -f --filter dangling=true` — removes untagged images only,
+# not images referenced by stopped containers or tags.
+
+###############################################################################
+
+# Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
+if [[ -n "$LOG_FILE" ]]; then
+    if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
+        _ui_msg="Error: LOG_FILE path invalid (reject .., - prefix, or newlines)."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
+        exit 1
+    fi
+fi
+
+# --- No further user configuration below ---
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
 main() {
@@ -46,34 +67,19 @@ main() {
     fi
 
     log "Removing dangling Docker images..."
-    local removed list_err
-    list_err=$(mktemp) || { log_err "Could not create temp file."; return 1; }
-    if ! removed="$(docker images --quiet --filter "dangling=true" 2>"$list_err")"; then
-        log_err "Could not list dangling Docker images: $(tr '\n' ' ' <"$list_err")"
-        rm -f "$list_err"
+    local prune_output prune_ec
+    prune_output=$(docker image prune -f --filter dangling=true 2>&1) || prune_ec=$?
+    prune_ec=${prune_ec:-0}
+
+    if [[ $prune_ec -ne 0 ]]; then
+        log_err "docker image prune failed: $prune_output"
         return 1
     fi
-    rm -f "$list_err"
-    if [[ -z "$removed" ]]; then
+
+    if [[ -n "$prune_output" ]]; then
+        log "$prune_output"
+    else
         log "No dangling images found."
-        return 0
-    fi
-
-    local count=0 failures=0
-    while IFS= read -r id; do
-        [[ -z "$id" ]] && continue
-        if docker rmi "$id" >/dev/null 2>&1; then
-            ((count++)) || true
-        else
-            log_err "Could not remove dangling image ${id} (it may still be referenced)."
-            ((failures++)) || true
-        fi
-    done <<< "$removed"
-
-    log "Removed $count dangling image(s)."
-    if [[ "$failures" -gt 0 ]]; then
-        log_err "$failures dangling image(s) could not be removed."
-        return 1
     fi
 }
 

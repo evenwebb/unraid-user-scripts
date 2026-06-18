@@ -313,6 +313,7 @@ main() {
             fi
         else
             log "Error count unchanged or not above baseline; no notification sent."
+            return 0
         fi
         return 1
     fi
@@ -324,4 +325,4 @@ main() {
     return 0
 }
 
-main "$@"
+main "$@" || exit 1

@@ -14,7 +14,7 @@
 #
 # Configuration (edit script variables below):
 #   - RADARR_URL / RADARR_API_KEY: Radarr connection
-#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK
+#   - DRY_RUN / DEBUG / USE_FFPROBE_FALLBACK / VERBOSE_PROGRESS
 #   - LOG_FILE / STATE_FILE / LOCK_FILE: logging, state, and lock
 #   - RATE_LIMIT_DELAY / MAX_ACTIONS_PER_RUN / SEARCH_COOLDOWN_DAYS
 #   - MOVIE_ID / MOVIE_FILTER: optional targeting
@@ -45,8 +45,9 @@ RADARR_API_KEY=""       # Settings → General → API Key
 DRY_RUN="1"             # 1 = preview only (recommended first), 0 = apply changes
 DEBUG="0"               # 1 = extra logging, 0 = normal
 USE_FFPROBE_FALLBACK="0"  # 1 = probe media with ffprobe when Radarr language metadata is missing
+VERBOSE_PROGRESS="1"      # 1 = log periodic scan progress; 0 = summary milestones only
 
-# Persistent files (empty = default beside this script)
+# Persistent files (empty = /tmp defaults to reduce flash wear on /boot)
 LOG_FILE=""
 STATE_FILE=""
 LOCK_FILE="/tmp/radarr-language-guard.lock"
@@ -67,8 +68,8 @@ FAST_DISCOVERY="1"      # 1 = faster Python discovery (recommended), 0 = Bash/jq
 
 ###############################################################################
 
-[[ -z "$LOG_FILE" ]] && LOG_FILE="$SCRIPT_DIR/radarr-language-guard.log"
-[[ -z "$STATE_FILE" ]] && STATE_FILE="$SCRIPT_DIR/radarr-language-guard-state.json"
+[[ -z "$LOG_FILE" ]] && LOG_FILE="/tmp/radarr-language-guard.log"
+[[ -z "$STATE_FILE" ]] && STATE_FILE="/tmp/radarr-language-guard-state.json"
 [[ -n "${RATE_LIMIT_SECONDS:-}" ]] && RATE_LIMIT_DELAY="$RATE_LIMIT_SECONDS"
 
 ###############################################################################
@@ -1068,7 +1069,7 @@ process_movie() {
   fi
 
   FILES_SCANNED=$((FILES_SCANNED + 1))
-  if (( FILES_SCANNED % 250 == 0 )); then
+  if [[ "$VERBOSE_PROGRESS" == "1" ]] && (( FILES_SCANNED % 250 == 0 )); then
     log_line "INFO" "progress files_scanned=$FILES_SCANNED invalid_found=$INVALID_FILES_FOUND actions=$ACTION_COUNT"
   fi
 

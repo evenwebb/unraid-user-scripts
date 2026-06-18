@@ -56,7 +56,19 @@ log_err() {
     echo "$msg"
 }
 
-# Validate LOG_FILE after log functions are defined so we can use log_err
+require_root() {
+    if [[ "$(id -u 2>/dev/null)" != "0" ]]; then
+        log_err "This script must run as root (use User Scripts schedule as root or sudo)."
+        return 1
+    fi
+    return 0
+}
+
+# Validate paths after log functions are defined
+if [[ -z "$SCRUB_DEVICE" || "$SCRUB_DEVICE" == *".."* || "$SCRUB_DEVICE" == "-"* ]]; then
+    log_err "SCRUB_DEVICE path invalid."
+    exit 1
+fi
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     log_err "LOG_FILE path invalid."
     exit 1
@@ -71,6 +83,8 @@ if [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && [[ -n "$NOTIFY_SCRIPT" ]]; then
 fi
 
 main() {
+    require_root || return 1
+
     if ! command -v btrfs &>/dev/null; then
         log_err "btrfs command not found. Install btrfs-progs."
         return 1
@@ -105,15 +119,13 @@ main() {
         fi
     fi
 
-    # Check for existing scrub and optionally resume
-    local scrub_action="start"
+    # Check for existing scrub and optionally skip starting a new one
     if [[ "$RESUME_EXISTING" == "1" ]]; then
         local scrub_status
         scrub_status=$(btrfs scrub status "$SCRUB_DEVICE" 2>/dev/null)
         if echo "$scrub_status" | grep -qi "running"; then
-            log "Scrub already in progress, cancelling and restarting..."
-            btrfs scrub cancel "$SCRUB_DEVICE" 2>/dev/null || true
-            sleep 2
+            log "Scrub already in progress on $SCRUB_DEVICE — skipping (RESUME_EXISTING=1)."
+            return 0
         fi
     fi
 

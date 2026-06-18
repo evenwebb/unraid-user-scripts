@@ -18,7 +18,7 @@
 #   - EXCLUDE_LOGS / EXCLUDE_PREVIOUS_BACKUPS: tarball exclusions
 #   - MAX_BACKUP_SIZE_MB: abort if backup exceeds size
 #   - NOTIFY_SCRIPT: dynamix notify path
-#   - LOG_FILE: optional log file
+#   - LOG_FILE / LOCK_FILE: optional logging and run lock
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -60,6 +60,9 @@ LOG_FILE=""
 # Warn if backup archive exceeds this size in MB (0 = no limit)
 MAX_BACKUP_SIZE_MB="0"
 
+# Prevent concurrent runs (empty = disabled; e.g. /tmp/flash-backup.lock)
+LOCK_FILE=""
+
 ###############################################################################
 
 # Validate paths
@@ -71,6 +74,12 @@ if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; t
 fi
 if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT" == "-"* ]]; then
     _ui_msg="Error: NOTIFY_SCRIPT path invalid."
+    echo "$_ui_msg"
+    echo "$_ui_msg" >&2
+    exit 1
+fi
+if [[ -n "$LOCK_FILE" ]] && [[ "$LOCK_FILE" == *".."* || "$LOCK_FILE" == "-"* ]]; then
+    _ui_msg="Error: LOCK_FILE path invalid."
     echo "$_ui_msg"
     echo "$_ui_msg" >&2
     exit 1
@@ -129,6 +138,24 @@ get_compression_ext() {
 }
 
 main() {
+    local lock_dir
+    if [[ -n "$LOCK_FILE" ]]; then
+        if ! command -v flock &>/dev/null; then
+            log_err "LOCK_FILE is set but flock is not available."
+            return 1
+        fi
+        lock_dir=$(dirname "$LOCK_FILE")
+        if [[ -n "$lock_dir" && "$lock_dir" != "." && ! -d "$lock_dir" ]]; then
+            log_err "LOCK_FILE directory does not exist: $lock_dir"
+            return 1
+        fi
+        exec 200>"$LOCK_FILE"
+        if ! flock -n 200; then
+            log_err "Another flash backup is already running (lock: $LOCK_FILE)."
+            return 1
+        fi
+    fi
+
     if ! is_safe_path "$BACKUP_DEST"; then
         log_err "BACKUP_DEST path invalid."
         return 1
@@ -194,14 +221,16 @@ main() {
     # Always exclude transient/runtime files
     exclude_args+=(--exclude="/boot/EFI")
 
-    local start_time size_before size_after duration exit_code
+    local start_time size_before size_after duration exit_code tar_err
     start_time=$(date +%s)
+    size_before=$(du -sk /boot 2>/dev/null | awk '{print $1}' || echo 0)
+    tar_err=$(mktemp) || { log_err "Cannot create temp file for tar errors."; return 1; }
 
     if [[ -n "$comp_flag" ]]; then
-        tar "${exclude_args[@]}" -c${comp_flag}f "$backup_path" -C / boot 2>/dev/null
+        tar "${exclude_args[@]}" -c${comp_flag}f "$backup_path" -C / boot 2>"$tar_err"
         exit_code=$?
     else
-        tar "${exclude_args[@]}" -cf "$backup_path" -C / boot 2>/dev/null
+        tar "${exclude_args[@]}" -cf "$backup_path" -C / boot 2>"$tar_err"
         exit_code=$?
     fi
 
@@ -209,17 +238,25 @@ main() {
 
     if [[ $exit_code -ne 0 ]]; then
         log_err "Backup failed (tar exit code $exit_code)."
+        if [[ -s "$tar_err" ]]; then
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && log_err "tar: $line"
+            done < "$tar_err"
+        fi
+        rm -f "$tar_err"
         send_unraid_notify "Flash Backup" "Flash backup failed" \
             "tar exited with code $exit_code after ${duration}s. Check $LOG_FILE for details." \
             "alert"
         return 1
     fi
+    rm -f "$tar_err"
 
     # Check backup size
     local backup_size_kb backup_size_mb
     backup_size_kb=$(du -k "$backup_path" 2>/dev/null | awk '{print $1}' || echo 0)
     backup_size_mb=$((backup_size_kb / 1024))
-    log "Backup created: ${backup_size_mb}MB in ${duration}s"
+    size_after=$backup_size_kb
+    log "Backup created: ${backup_size_mb}MB archive (${size_before}KB /boot → ${size_after}KB archive) in ${duration}s"
 
     if [[ "$MAX_BACKUP_SIZE_MB" -gt 0 ]] && [[ "$backup_size_mb" -gt "$MAX_BACKUP_SIZE_MB" ]]; then
         log "WARNING: Backup size (${backup_size_mb}MB) exceeds MAX_BACKUP_SIZE_MB (${MAX_BACKUP_SIZE_MB}MB)."

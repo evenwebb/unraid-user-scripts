@@ -35,7 +35,8 @@ set -o pipefail
 # Profile presets:
 #   nzb     — Usenet/NZBGet completed download paths + NZB junk patterns
 #   torrent — torrent client completed paths + torrent junk patterns
-#   all     — both NZB and torrent presets combined (deduped)
+#   all     — both NZB and torrent presets combined (deduped); removes sidecar files
+#             (.nfo, images, archives, etc.) unless EXCLUDE_PATTERNS is set
 #   custom  — use FOLDERS and JUNK_EXTENSIONS below only
 PROFILE="all"
 
@@ -147,7 +148,8 @@ resolve_profile_config() {
     ACTIVE_FOLDERS=()
     ACTIVE_JUNK_EXTENSIONS=()
 
-    local profile_lower="${PROFILE,,}"
+    local profile_lower
+    profile_lower=$(echo "$PROFILE" | tr '[:upper:]' '[:lower:]')
 
     case "$profile_lower" in
         nzb)
@@ -314,7 +316,14 @@ delete_sample_dirs() {
     else
         count=$(find "$dir" -xdev -type d \( -iname "sample" -o -iname "samples" \) -print 2>/dev/null | wc -l)
         if [[ $count -gt 0 ]]; then
-            find "$dir" -xdev -type d \( -iname "sample" -o -iname "samples" \) -exec rm -rf {} + 2>/dev/null || true
+            local -a sample_dirs=()
+            while IFS= read -r sample_dir; do
+                [[ -n "$sample_dir" ]] && sample_dirs+=("$sample_dir")
+            done < <(find "$dir" -xdev -type d \( -iname "sample" -o -iname "samples" \) -print 2>/dev/null)
+            local sample_dir
+            for sample_dir in "${sample_dirs[@]}"; do
+                rm -rf "$sample_dir" 2>/dev/null || true
+            done
         fi
         log "Deleted $count sample director(ies)"
     fi
@@ -361,6 +370,10 @@ main() {
 
     if [[ "$DRY_RUN" != "0" && "$DRY_RUN" != "1" ]]; then
         log_err "DRY_RUN must be 0 or 1."
+        return 1
+    fi
+    if [[ ! "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
+        log_err "MIN_AGE_MINUTES must be a non-negative integer (you entered: ${MIN_AGE_MINUTES})."
         return 1
     fi
     if [[ "$DELETE_SAMPLES" != "0" && "$DELETE_SAMPLES" != "1" ]]; then

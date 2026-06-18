@@ -193,6 +193,19 @@ _radarr_http_get() {
     return 0
 }
 
+_radarr_fetch_all_movies() {
+    local page=1 page_size=250 chunk combined='[]' count
+    while true; do
+        chunk=$(_radarr_http_get "/api/v3/movie?page=${page}&pageSize=${page_size}&sortKey=title&sortDirection=asc" "loading movie list (page ${page})") || return 1
+        count=$(printf '%s' "$chunk" | jq 'length')
+        [[ "$count" -eq 0 ]] && break
+        combined=$(jq -s 'add' <<< "$combined" "$chunk")
+        [[ "$count" -lt "$page_size" ]] && break
+        page=$((page + 1))
+    done
+    printf '%s' "$combined"
+}
+
 _verify_radarr_connection() {
     local payload app_name
     payload="$(_radarr_http_get "/api/v3/system/status" "checking the connection")" || return 1
@@ -352,7 +365,7 @@ main() {
     log "Radarr Quality Profile Updater - premium years: $premium_desc (profile $CURRENT_YEAR_PROFILE_ID), older years: profile $OLDER_MOVIES_PROFILE_ID"
 
     local movie_json
-    movie_json=$(_radarr_http_get "/api/v3/movie" "loading the movie list") || return 1
+    movie_json=$(_radarr_fetch_all_movies) || return 1
 
     # Build jq filter (add monitored filter if MONITORED_ONLY=1)
     local MOVIES
@@ -485,7 +498,9 @@ main() {
         cmd_body=$(jq -n --argjson ids "$ids_json" '{name: "MoviesSearch", movieIds: $ids}')
         local cmd_result code curl_err=""
         _radarr_curl_cmd
-        curl_err=$(mktemp)
+        curl_err=$(mktemp) || {
+            log_err "Failed to create temp file for search command."
+        }
         if [[ -n "$curl_err" ]]; then
             cmd_result=$("${RADARR_CURL[@]}" -X POST -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
                 -d "$cmd_body" "$RADARR_URL/api/v3/command" 2>"$curl_err") || {

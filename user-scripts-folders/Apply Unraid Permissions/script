@@ -45,8 +45,9 @@ PERM_PATHS=(
 # Owner:group (Unraid default)
 OWNER_GROUP="nobody:users"
 
-# Chmod flags (Docker-safe: dirs 0777, files 0666)
-CHMOD_FLAGS="u-x,go-rwx,go+u,ugo+X"
+# Chmod flags (Docker-safe: dirs 0777, files 0666).
+# Warning: u-x removes execute bits from regular files; ugo+X only restores execute on directories.
+CHMOD_FLAGS=(u-x,go-rwx,go+u,ugo+X)
 
 # Behavior
 DRY_RUN="1"             # 1 = preview only, 0 = apply chmod changes
@@ -60,6 +61,11 @@ EXCLUDE_PATHS=()
 PARALLEL_JOBS="0"
 
 ###############################################################################
+
+# Support merged configs that still have CHMOD_FLAGS as a plain string.
+if [[ "${CHMOD_FLAGS[*]}" == "${CHMOD_FLAGS[0]:-}" ]] && [[ "${#CHMOD_FLAGS[@]}" -eq 1 ]]; then
+    IFS=',' read -ra CHMOD_FLAGS <<< "${CHMOD_FLAGS[0]}"
+fi
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -82,6 +88,16 @@ is_dangerous_path() {
         fi
     done
     return 1
+}
+
+# Reject paths that are too shallow (e.g. /mnt/user alone) — same minimum depth as is_safe_delete_path.
+is_safe_perm_path() {
+    local p="$1"
+    [[ -z "$p" ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
+    [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
+    return 0
 }
 
 # Remove duplicates and paths that are subpaths of others (process parent only).
@@ -165,6 +181,12 @@ main() {
             continue
         fi
 
+        if ! is_safe_perm_path "$path"; then
+            log_err "Skipping $path (path is too shallow — use a subdirectory, e.g. /mnt/user/downloads/...)"
+            any_failed=1
+            continue
+        fi
+
         log "Applying permissions to: $path"
 
         # Build exclude args for find
@@ -176,7 +198,11 @@ main() {
         done
 
         if [[ "$DRY_RUN" == "1" ]]; then
-            log "[DRY-RUN] would apply: chmod $CHMOD_FLAGS / chown $OWNER_GROUP on $path"
+            local file_count
+            file_count=$(find "$path" -xdev -type f "${exclude_args[@]}" 2>/dev/null | wc -l | tr -d '[:space:]')
+            [[ "$file_count" != *[0-9]* ]] && file_count=0
+            log "[DRY-RUN] would apply: chmod ${CHMOD_FLAGS[*]} / chown $OWNER_GROUP on $path"
+            log "[DRY-RUN] would touch approximately $file_count file(s) under $path"
             [[ ${#exclude_args[@]} -gt 0 ]] && log "[DRY-RUN] exclude patterns: ${EXCLUDE_PATHS[*]}"
             [[ "$PARALLEL_JOBS" -gt 0 ]] && log "[DRY-RUN] parallel mode: $PARALLEL_JOBS jobs"
             continue
@@ -185,19 +211,19 @@ main() {
         if [[ "$PARALLEL_JOBS" -gt 0 ]] && [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]]; then
             # Parallel mode: use find + xargs -P for faster processing on large dirs
             find "$path" -xdev -type d "${exclude_args[@]}" -print0 2>/dev/null | \
-                xargs -0 -P "$PARALLEL_JOBS" -n 50 chmod "$CHMOD_FLAGS" 2>/dev/null || true
+                xargs -0 -P "$PARALLEL_JOBS" -n 50 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || true
             find "$path" -xdev -type f "${exclude_args[@]}" -print0 2>/dev/null | \
-                xargs -0 -P "$PARALLEL_JOBS" -n 100 chmod "$CHMOD_FLAGS" 2>/dev/null || true
+                xargs -0 -P "$PARALLEL_JOBS" -n 100 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || true
             find "$path" -xdev "${exclude_args[@]}" -print0 2>/dev/null | \
                 xargs -0 -P "$PARALLEL_JOBS" -n 100 chown "$OWNER_GROUP" -- 2>/dev/null || true
             log "Parallel permissions applied to $path"
         else
             # Sequential mode (original chmod -R behavior)
             if [[ ${#exclude_args[@]} -gt 0 ]]; then
-                find "$path" -xdev "${exclude_args[@]}" -exec chmod "$CHMOD_FLAGS" {} + 2>/dev/null || true
+                find "$path" -xdev "${exclude_args[@]}" -exec chmod "${CHMOD_FLAGS[@]}" {} + 2>/dev/null || true
                 find "$path" -xdev "${exclude_args[@]}" -exec chown "$OWNER_GROUP" -- {} + 2>/dev/null || true
             else
-                if ! chmod -R $CHMOD_FLAGS "$path"; then
+                if ! chmod -R -- "${CHMOD_FLAGS[@]}" "$path"; then
                     log_err "chmod failed for $path"
                     any_failed=1
                     continue

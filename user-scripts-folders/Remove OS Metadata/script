@@ -117,6 +117,15 @@ is_safe_path() {
     return 0
 }
 
+# Search roots must be a real subdirectory under /mnt (not /mnt itself).
+is_safe_delete_path() {
+    local p="$1"
+    is_safe_path "$p" || return 1
+    [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
+    [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
+    return 0
+}
+
 main() {
     local total_deleted=0
     local total_matched=0
@@ -152,8 +161,8 @@ main() {
     log "Searching for and deleting ${os_types} metadata files..."
 
     for base in "${SEARCH_PATHS[@]}"; do
-        if ! is_safe_path "$base"; then
-            log_err "Skipping unsafe path: $base"
+        if ! is_safe_delete_path "$base"; then
+            log_err "Skipping unsafe path (must be a subdirectory under /mnt, not /mnt itself): $base"
             continue
         fi
         if [[ ! -d "$base" ]]; then

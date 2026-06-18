@@ -70,6 +70,7 @@ list_docker_log_sizes() {
             else
                 cname="unknown"
             fi
+            local size
             size=$(du -k "$logfile" 2>/dev/null | awk '{print $1}')
             [[ -z "$size" ]] && size=0
             echo "$cname $size"

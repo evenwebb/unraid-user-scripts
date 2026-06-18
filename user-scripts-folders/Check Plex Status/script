@@ -228,19 +228,20 @@ main() {
     fi
 
     if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF "$PLEX_CONTAINER_NAME"; then
-        log "Plex container '$PLEX_CONTAINER_NAME' is not running. No action taken."
-        return 0
+        log "Plex container '$PLEX_CONTAINER_NAME' is not running."
+        send_unraid_notify "Check Plex Status" "Plex container not running" \
+            "Plex Docker container '$PLEX_CONTAINER_NAME' is not running." "alert"
+        return 1
     fi
 
     log "Plex container is running. Checking web UI..."
 
     local http_code primary_code inner_code
-    local path port loopback_url inner_url
+    local path port loopback_url
 
     path="$(plex_path_from_url "$PLEX_WEB_UI")"
     port="$(plex_port_from_url "$PLEX_WEB_UI")"
     loopback_url="http://127.0.0.1:${port}${path}"
-    inner_url="http://127.0.0.1:${port}${path}"
 
     primary_code="$(curl_http_code "$PLEX_WEB_UI")"
     http_code="$primary_code"
@@ -281,7 +282,7 @@ main() {
 
     # Last resort: curl from inside the container (Plex listens on 127.0.0.1 there even when host routing fails).
     inner_code=$(docker exec \
-        -e "INNER=$inner_url" \
+        -e "INNER=$loopback_url" \
         -e "CT=$CONNECT_TIMEOUT" \
         -e "MT=$MAX_TIME" \
         "$PLEX_CONTAINER_NAME" \

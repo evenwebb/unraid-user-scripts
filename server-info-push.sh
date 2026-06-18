@@ -16,6 +16,7 @@
 #   - ARRAY_MOUNT / CACHE_MOUNT / APPDATA_MOUNT
 #   - INCLUDE_UPS / NUT_UPS_NAME
 #   - SHOW_STORAGE / SHOW_TEMPS / SHOW_MEMORY / SHOW_UPTIME_LOAD / SHOW_VMS / SHOW_CONTAINERS / SHOW_UPS
+#   - LOG_FILE: optional log file (empty = stdout only)
 #
 # Note: Progress and errors print to stdout; Unraid User Scripts shows that in the run window. Optional LOG_FILE also appends a copy to disk.
 #
@@ -56,14 +57,30 @@ SHOW_UPS="1"
 # NUT UPS name for upsc (e.g. "ups@localhost"). Empty = auto-detect or use apcaccess
 NUT_UPS_NAME=""
 
+# Optional: append logs to file (empty = stdout only)
+LOG_FILE=""
+
+# Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
+if [[ -n "$LOG_FILE" ]]; then
+    if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
+        _ui_msg="Error: LOG_FILE path invalid (reject .., - prefix, or newlines)."
+        echo "$_ui_msg"
+        echo "$_ui_msg" >&2
+        exit 1
+    fi
+fi
+
 ###############################################################################
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
+    [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
 # Drop blank lines; prefix each line for notify / User Scripts output.
@@ -120,7 +137,7 @@ format_uptime() {
 
 # Get UPS status (apcaccess or NUT upsc)
 get_ups_status() {
-    if [[ "$INCLUDE_UPS" != "1" ]]; then
+    if [[ "$SHOW_UPS" != "1" || "$INCLUDE_UPS" != "1" ]]; then
         return 0
     fi
     local status=""
@@ -235,8 +252,10 @@ main() {
     fi
 
     # UPS
-    local ups_line
-    ups_line=$(get_ups_status)
+    local ups_line=""
+    if [[ "$SHOW_UPS" == "1" ]]; then
+        ups_line=$(get_ups_status)
+    fi
 
     # Build styled message (sections controlled by SHOW_* config toggles)
     local msg

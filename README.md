@@ -18,6 +18,10 @@
 
 </div>
 
+If you run **Unraid** at home, the [User Scripts](https://unraid.net/community/apps) plugin is a simple way to run bash tasks from the web UI — scheduled cleanups, health checks, API syncs, and notifications without living in SSH. This repository is a collection of scripts I wrote for my own server and shared here: keeping Sonarr, Radarr, and NZBGet queues aligned, clearing download folders safely, watching disk and parity health, backing up flash, trimming Docker, and updating installed scripts while keeping your local settings.
+
+Each script is a single self-contained file. Copy the ready-made plugin folders to your flash drive, or paste a script into the User Scripts editor, change the variables in the **EDIT FOR YOUR SETUP** section at the top, then run once or put it on a schedule.
+
 > **Quick start:** Copy [`user-scripts-folders/`](user-scripts-folders/) to `/boot/config/plugins/user.scripts/scripts/` on flash.
 
 ---
@@ -119,8 +123,21 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | python3 | `language-guard-*.sh` |
 | Docker CLI | `check-plex-status.sh`, `clear-plex-codecs.sh` (if restart enabled), `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh` |
 | Bash 4.3+ | `user-scripts-updater.sh` |
-| root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh` |
-| smartctl | `check-smart-status.sh`; optional in `disk-error-alert.sh` |
+| unzip, curl, md5sum | `user-scripts-updater.sh` (zip mode) |
+| flock | `queue-sync-nzbget.sh`, `user-scripts-updater.sh`, `docker-image-usage-alert.sh`, `flash-backup.sh` (when `LOCK_FILE` set) |
+| root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh`, `btrfs-scrub.sh` |
+| smartctl | `check-smart-status.sh`; required when `disk-error-alert.sh` `ENABLE_SMART_CORRELATION=1` |
+
+---
+
+## 🤝 Contributing
+
+1. Edit scripts in the repo root (`*.sh`), not only `user-scripts-folders/`.
+2. Run `python3 .github/scripts/generate_folders.py` and commit `user-scripts-folders/`.
+3. CI runs `bash -n` on every script and verifies folder sync.
+4. Test on Unraid with `DRY_RUN=1` before live runs.
+
+**Tested on:** Unraid 6.12.x (primary). Unraid 7.x parity/scheduler fields may differ — report issues if notifications misfire.
 
 ---
 
