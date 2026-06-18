@@ -33,7 +33,7 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Sonarr
+# --- Sonarr ---
 SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
 SONARR_API_KEY=""       # Settings → General → API Key
 
@@ -47,7 +47,7 @@ ENDED_PROFILE_ID="2"
 # Continuing with no upcoming: status continuing, nothing soon
 CONTINUING_NO_UPCOMING_PROFILE_ID="2"
 
-# Enable/disable processing of each category (true/false)
+# Enable/disable processing of each category (1 or 0)
 PROCESS_AIRING="1"
 PROCESS_UPCOMING="1"
 PROCESS_ENDED="1"
@@ -58,7 +58,7 @@ AIRING_DAYS="30"
 # Days threshold: nextAiring within UPCOMING_DAYS = "upcoming" (beyond AIRING_DAYS)
 UPCOMING_DAYS="90"
 
-# 1 = dry run (no API changes), 0 = live
+# 1 = preview only (no API changes), 0 = apply updates
 DRY_RUN="1"
 
 # Optional: append logs to file (empty = stdout only)
@@ -82,7 +82,7 @@ LOG_VERBOSE="0"
 # 1 = only update monitored series, 0 = all
 MONITORED_ONLY="0"
 
-# Optional: Unraid dynamix notify after run (empty = no notification)
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # 1 = trigger Sonarr search for updated series, 0 = no

@@ -39,7 +39,7 @@ set -o pipefail
 #   custom  — use FOLDERS and JUNK_EXTENSIONS below only
 PROFILE="all"
 
-# 1 = dry-run (no deletions), 0 = production
+# 1 = preview only (no deletions), 0 = delete files
 DRY_RUN="1"
 
 # Skip files modified less than N minutes ago (0 = no minimum age)

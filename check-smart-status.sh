@@ -30,10 +30,10 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Disks to check - leave empty to auto-detect via smartctl --scan
+# Disks to check (e.g. /dev/sda); leave empty to auto-detect all disks
 DISKS=()
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)

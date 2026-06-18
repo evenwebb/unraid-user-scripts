@@ -29,20 +29,13 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Docker containers directory - default Unraid location
+# Docker container logs (Unraid default path)
 DOCKER_CONTAINERS_PATH="/var/lib/docker/containers"
 
-# Number of log entries to display
-HEAD_COUNT="60"
-
-# 1 = group by container name (uses docker inspect for readable names)
-PER_CONTAINER_BREAKDOWN="1"
-
-# Optional state file to track size trends across runs (empty = no trend tracking)
-TREND_FILE=""
-
-# 1 = show size deltas from previous run (requires TREND_FILE)
-SHOW_TREND="0"
+HEAD_COUNT="60"              # Log files to list per container
+PER_CONTAINER_BREAKDOWN="1"  # 1 = group output by container name
+TREND_FILE=""                # Trend state file (empty = disabled unless SHOW_TREND=1)
+SHOW_TREND="0"               # 1 = show size change since last run (needs TREND_FILE)
 
 ###############################################################################
 

@@ -34,7 +34,7 @@ set -o pipefail
 # System log path - may be /var/log/syslog or /var/log/messages on some systems
 SYSLOG_PATH="/var/log/syslog"
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # 1 = extract and show which processes were killed (from OOM lines in syslog)
@@ -43,7 +43,7 @@ SHOW_KILLED_PROCESSES="1"
 # 1 = track OOM count in state file, only notify when count increases
 ENABLE_STATE_TRACKING="1"
 
-# Persistent state file for tracking OOM count across runs
+# OOM count state (empty = oom-errors.state beside this script)
 STATE_FILE=""
 
 # Optional: append logs to file (empty = stdout only)

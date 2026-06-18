@@ -36,10 +36,10 @@ set -o pipefail
 # System log path - /var/log/syslog or /var/log/messages on some systems
 SYSLOG_PATH="/var/log/syslog"
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
-# Grep -E patterns for md/storage errors (each is searched; union is de-duped)
+# Syslog text patterns for array/disk errors (one match per line is enough)
 ERROR_PATTERNS=(
     "read error"
     "write error"

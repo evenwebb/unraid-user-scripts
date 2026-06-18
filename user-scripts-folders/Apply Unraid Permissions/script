@@ -48,8 +48,8 @@ OWNER_GROUP="nobody:users"
 # Chmod flags (Docker-safe: dirs 0777, files 0666)
 CHMOD_FLAGS="u-x,go-rwx,go+u,ugo+X"
 
-# Behaviour
-DRY_RUN="1"
+# Behavior
+DRY_RUN="1"             # 1 = preview only, 0 = apply chmod changes
 
 # Paths to skip within PERM_PATHS (e.g. "*/Downloads/*" or "*/system/docker/*")
 # Glob patterns are matched against full file paths via find -path

@@ -33,15 +33,15 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Radarr
+# --- Radarr ---
 RADARR_URL=""           # e.g. http://192.168.1.10:7878 (no trailing slash)
 RADARR_API_KEY=""       # Settings → General → API Key
 
 # Quality profile IDs from Radarr (Settings → Profiles)
-CURRENT_YEAR_PROFILE_ID="9"   # Profile for current year movies
-OLDER_MOVIES_PROFILE_ID="2"   # Profile for previous year and older movies
+CURRENT_YEAR_PROFILE_ID="9"   # Radarr → Settings → Profiles (ID column)
+OLDER_MOVIES_PROFILE_ID="2"   # Profile for older movies (Settings → Profiles)
 
-# 1 = dry run (no API changes), 0 = live
+# 1 = preview only (no API changes), 0 = apply updates
 DRY_RUN="1"
 
 # Enable/disable processing of current and previous year (1 or 0)
@@ -79,7 +79,7 @@ LOG_VERBOSE="0"
 # 1 = only update monitored movies, 0 = all
 MONITORED_ONLY="0"
 
-# Optional: Unraid dynamix notify after run (empty = no notification)
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # 1 = trigger Radarr search for updated movies after run, 0 = no

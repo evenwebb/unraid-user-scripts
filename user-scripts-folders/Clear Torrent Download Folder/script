@@ -30,7 +30,7 @@ set -o pipefail
 ###############################################################################
 # EDIT FOR YOUR SETUP
 ###############################################################################
- 
+
 # Torrent download directory
 DIR_PATH="/mnt/user/downloads/torrents"
 
@@ -40,7 +40,7 @@ DRY_RUN="1"
 # Skip items modified less than N minutes ago (0 = no minimum age)
 MIN_AGE_MINUTES="5"
 
-# Unraid dynamix notify (default path; empty = disabled)
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)

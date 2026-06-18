@@ -11,7 +11,7 @@
 #   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - DISKS_INI: path to disks.ini
+#   - DISKS_INI: Unraid disk assignment config
 #   - OUTPUT_FILE: text output path
 #   - JSON_OUTPUT: 1 = also write .json
 #
@@ -28,10 +28,10 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Unraid disks.ini path
+# Unraid disk assignments (Main → Array Devices)
 DISKS_INI="/var/local/emhttp/disks.ini"
 
-# Output file path
+# Text report path (JSON written alongside when JSON_OUTPUT=1)
 OUTPUT_FILE="/boot/config/DISK_ASSIGNMENTS.txt"
 
 # 1 = also write a JSON version alongside the text file (OUTPUT_FILE.json)

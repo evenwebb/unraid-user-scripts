@@ -48,23 +48,23 @@ NZBGET_URL=""           # e.g. http://192.168.1.10:6789 (no trailing slash)
 NZBGET_USER="nzbget"    # Settings → Security → Control username
 NZBGET_PASS=""          # Settings → Security → Control password
 
-# --- Behaviour ---
-DRY_RUN="1"                # 1 = log only, no removals or searches (default)
-TRIGGER_SEARCH="1"         # 0 = remove+blocklist only; 1 = remove, blocklist, and force search
+# --- Behavior ---
+DRY_RUN="1"                # 1 = preview only, no removals or searches (default)
+TRIGGER_SEARCH="1"         # 1 = trigger Radarr/Sonarr search after removal; 0 = remove only
 CLEAR_NZBGET_FAILED="0"    # 1 = clear failed downloads from NZBGet history
-BLOCKLIST_ENABLED="1"      # 1 = blocklist release when removing from *arr queue; 0 = remove only
+BLOCKLIST_ENABLED="1"      # 1 = blocklist release when removing from Radarr/Sonarr queue; 0 = remove only
 SKIP_RADARR="0"            # 1 = skip Radarr processing
 SKIP_SONARR="0"            # 1 = skip Sonarr processing
-SAFE_EMPTY_QUEUE="0"       # 1 = skip *arr removals when NZBGet queue is empty
+SAFE_EMPTY_QUEUE="0"       # 1 = skip Radarr/Sonarr removals when NZBGet queue is empty
 LOCK_FILE=""               # Prevent concurrent runs (e.g. /tmp/queue-sync-nzbget.lock)
 MAX_REMOVALS_PER_RUN="0"   # Cap removals per run; 0 = no limit
 RATE_LIMIT_DELAY="0"       # Seconds between API calls when removing; 0 = no delay
 RETRY_COUNT="2"            # Retries for failed curl requests
 CLEAR_NZBGET_AGE_DAYS="0"  # Only clear failed history older than N days; 0 = all
-LOG_FILE=""               # If set, append logs here (e.g. /boot/config/queue-sync.log)
-CURL_TIMEOUT="30"
-SEARCH_IDS_CHUNK_SIZE="50"  # Max IDs per MoviesSearch/EpisodeSearch request
-QUEUE_PAGE_SIZE="500"      # *arr queue page size (pagination handled)
+LOG_FILE=""                # Append logs here (e.g. /boot/config/queue-sync.log; empty = stdout only)
+CURL_TIMEOUT="30"          # HTTP timeout in seconds for API calls
+SEARCH_IDS_CHUNK_SIZE="50"  # Max movie/episode IDs per search batch
+QUEUE_PAGE_SIZE="500"      # Radarr/Sonarr queue page size (raise if queue exceeds 500)
 
 ###############################################################################
 

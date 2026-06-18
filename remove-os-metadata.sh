@@ -38,7 +38,7 @@ SEARCH_PATHS=(
     "/mnt/downloads"
 )
 
-# Maximum depth (0 = unlimited). Use a number to limit depth.
+# Maximum find depth (9999 = effectively unlimited; lower to limit scan depth)
 MAX_DEPTH=9999
 
 # Enable/disable deletion of macOS and Windows metadata (1 or 0)

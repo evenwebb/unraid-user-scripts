@@ -43,13 +43,13 @@ SHOW_LARGEST_CONTAINERS="1"
 # Number of containers to list
 LARGEST_COUNT="5"
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
-# State file for threshold escalation tracking
+# Alert escalation state (empty = docker-usage.state beside this script)
 STATE_FILE=""
 
 # Default state file: same dir as this script

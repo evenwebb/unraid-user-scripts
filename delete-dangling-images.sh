@@ -25,6 +25,8 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
+# No user configuration — prunes dangling Docker images.
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }

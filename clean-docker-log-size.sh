@@ -27,14 +27,11 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Docker containers directory - default Unraid location
+# Docker container logs (Unraid default path)
 DOCKER_CONTAINERS_PATH="/var/lib/docker/containers"
 
-# Optional: append logs to file (empty = stdout only)
-LOG_FILE=""
-
-# Number of log entries to show in before/after listing
-HEAD_COUNT="60"
+LOG_FILE=""                  # Append output here (empty = stdout only)
+HEAD_COUNT="60"              # Log files to list before/after truncation
 
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     _ui_msg="Error: LOG_FILE path invalid."

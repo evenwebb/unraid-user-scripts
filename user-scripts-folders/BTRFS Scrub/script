@@ -33,13 +33,13 @@ set -o pipefail
 # Device or mount point to scrub
 SCRUB_DEVICE="/mnt/downloads"
 
-# Where to save scrub log output (default: /boot/logs/scrub.log if empty)
+# Scrub log file (empty at runtime falls back to /boot/logs/scrub.log)
 LOG_FILE="/boot/logs/scrub.log"
 
 # 1 = send Unraid notifications on start/success/failure, 0 = log only
 ENABLE_NOTIFICATIONS="1"
 
-# Unraid notify script (dynamix plugin)
+# Unraid Dynamix notify script (used when ENABLE_NOTIFICATIONS=1)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # 1 = resume existing scrub if one is already in progress (instead of erroring)

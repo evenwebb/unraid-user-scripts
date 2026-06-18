@@ -48,10 +48,10 @@ VERIFY_BACKUP="1"
 # 1 = exclude /boot/logs (can grow large from syslog mirroring)
 EXCLUDE_LOGS="1"
 
-# 1 = exclude files matching previous backup patterns from the archive
+# 1 = omit older flash-backup-*.tar.* files from new archive
 EXCLUDE_PREVIOUS_BACKUPS="1"
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)

@@ -57,7 +57,7 @@ DEST_DIR="/boot/config/plugins/user.scripts/scripts"
 # 1 = fetch a fresh ZIP each run (zip mode), 0 = reuse cached ZIP (if present)
 FETCH_UPDATES="1"
 
-# 1 = dry run (no changes), 0 = apply
+# 1 = preview only (no changes), 0 = apply updates
 DRY_RUN="1"
 
 # Backups of updated destination scripts

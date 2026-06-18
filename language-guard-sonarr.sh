@@ -39,43 +39,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Sonarr
+# --- Sonarr ---
 SONARR_URL=""           # e.g. http://192.168.1.10:8989 (no trailing slash)
 SONARR_API_KEY=""       # Settings → General → API Key
 
-# 1 = dry run (recommended to start), 0 = live run
-DRY_RUN="1"
+DRY_RUN="1"             # 1 = preview only (recommended first), 0 = apply changes
+DEBUG="0"               # 1 = extra logging, 0 = normal
+USE_FFPROBE_FALLBACK="0"  # 1 = probe media with ffprobe when Sonarr language metadata is missing
 
-# 1 = extra logging, 0 = normal
-DEBUG="0"
-
-# 1 = use ffprobe when Sonarr metadata is missing
-USE_FFPROBE_FALLBACK="0"
-
-# Persistent files (empty = default beside script)
+# Persistent files (empty = default beside this script)
 LOG_FILE=""
 STATE_FILE=""
 LOCK_FILE="/tmp/sonarr-language-guard.lock"
 
-# Throttles / safety limits
-RATE_LIMIT_DELAY="1"
-MAX_ACTIONS_PER_RUN="25"
-SEARCH_COOLDOWN_DAYS="7"
+RATE_LIMIT_DELAY="1"    # Seconds between API calls
+MAX_ACTIONS_PER_RUN="25"  # Max delete/search actions per run
+SEARCH_COOLDOWN_DAYS="7"  # Min days before re-searching the same title
 
-# 1 = only delete when the content is replaceable (recommended)
-DELETE_ONLY_IF_REPLACEABLE="1"
+DELETE_ONLY_IF_REPLACEABLE="1"  # 1 = only delete when Sonarr can replace the release (recommended)
 
-# Optional targeting for tests / small batches
-SERIES_ID=""
-SERIES_FILTER=""
+SERIES_ID=""            # Limit to one Sonarr series ID (empty = full library)
+SERIES_FILTER=""        # Substring match on series title (empty = all)
 
-# Optional maintenance toggles
-CLEAR_BLACKLIST="0"
-BLACKLIST_DUMP="0"
-STATS_DUMP="0"
+# Script state maintenance (not Sonarr's release blocklist API)
+CLEAR_BLACKLIST="0"     # 1 = clear script blacklist state and exit
+BLACKLIST_DUMP="0"      # 1 = print script blacklist JSON and exit
+STATS_DUMP="0"          # 1 = print script stats JSON and exit
 
-# 1 = faster discovery pass (recommended), 0 = slower shell/jq path
-FAST_DISCOVERY="1"
+FAST_DISCOVERY="1"      # 1 = faster Python discovery (recommended), 0 = Bash/jq discovery
 
 ###############################################################################
 

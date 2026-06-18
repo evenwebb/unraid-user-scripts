@@ -33,13 +33,13 @@ set -o pipefail
 # 0 = none (echo only), 1 = Unraid notify
 PUSH_NOTIFICATIONS="0"
 
-# Unraid dynamix notify when PUSH_NOTIFICATIONS=1 (empty = stdout only)
+# Unraid Dynamix notify script (used when PUSH_NOTIFICATIONS=1)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
-# Mounts to report free space
-ARRAY_MOUNT="/mnt/user"
-CACHE_MOUNT="/mnt/downloads"
-APPDATA_MOUNT="/mnt/appdata"
+# Mount points for free-space report
+ARRAY_MOUNT="/mnt/user"      # Main array share
+CACHE_MOUNT="/mnt/downloads" # Cache/downloads pool
+APPDATA_MOUNT="/mnt/appdata"  # Appdata share
 
 # Include UPS status if available (1 = yes, 0 = no)
 INCLUDE_UPS="1"

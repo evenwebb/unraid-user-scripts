@@ -11,7 +11,7 @@
 #   Edit variables in EDIT FOR YOUR SETUP below.
 #
 # Configuration (edit script variables below):
-#   - VAR_INI: Unraid emhttp var.ini path
+#   - VAR_INI: Unraid parity-check state file
 #   - NOTIFY_ON_START / NOTIFY_ON_PROGRESS / NOTIFY_ON_COMPLETION / NOTIFY_ON_ERRORS
 #   - PROGRESS_MILESTONE_PCT: notify every N percent
 #   - NOTIFY_SCRIPT: dynamix notify path
@@ -30,7 +30,7 @@ set -o pipefail
 # EDIT FOR YOUR SETUP
 ###############################################################################
 
-# Path to Unraid var.ini
+# Unraid parity-check state (Settings → Scheduler → Parity Check)
 VAR_INI="/var/local/emhttp/var.ini"
 
 # 1 = notify when a new parity check starts
@@ -48,7 +48,7 @@ NOTIFY_ON_COMPLETION="1"
 # 1 = escalate alert if parity check found errors
 NOTIFY_ON_ERRORS="1"
 
-# Unraid dynamix notify script
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)

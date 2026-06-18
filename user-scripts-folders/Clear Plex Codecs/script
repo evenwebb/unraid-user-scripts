@@ -42,7 +42,7 @@ PLEX_CONTAINER_NAME="plex"
 # 1 = restart Plex after clearing codecs, 0 = leave the container running (default)
 RESTART_PLEX_CONTAINER="0"
 
-# 1 = only restart if container restart policy is always or unless-stopped
+# 0 = restart whenever RESTART_PLEX_CONTAINER=1; 1 = only if policy is always or unless-stopped
 RESTART_ONLY_IF_AUTOSTART="0"
 
 ###############################################################################

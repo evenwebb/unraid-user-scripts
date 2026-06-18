@@ -15,7 +15,7 @@
 #   - PLEX_WEB_UI: URL for health check
 #   - NOTIFY_SCRIPT: dynamix notify path (default set; empty = disabled)
 #   - LOG_FILE: optional log file (empty = stdout only)
-#   - RESTART_ONLY_IF_AUTOSTART: 1 = skip restart if policy is no
+#   - RESTART_ONLY_IF_AUTOSTART: 1 = skip restart unless policy is always or unless-stopped
 #   - NOTIFY_ON_RECOVERY: 1 = notify when Plex recovers
 #   - MAX_RESTARTS_PER_DAY: daily restart cap (0 = unlimited)
 #   - CONNECT_TIMEOUT / MAX_TIME: curl timeouts for UI check
@@ -41,18 +41,18 @@ PLEX_CONTAINER_NAME="plex"
 # when Plex only binds certain interfaces (bridge/custom Docker networking).
 PLEX_WEB_UI="http://127.0.0.1:32400/web/index.html"
 
-# Unraid dynamix notify (default path; empty = disabled)
+# Unraid Dynamix notify script (empty = disabled)
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
-# 0 = always restart when UI is unreachable (default); 1 = skip if restart policy is "no"
+# 0 = restart when UI is unreachable (default); 1 = skip unless policy is always or unless-stopped
 RESTART_ONLY_IF_AUTOSTART="0"
 
-# Timeout in seconds for web UI check
-CONNECT_TIMEOUT="15"
-MAX_TIME="30"
+# Curl timeouts in seconds
+CONNECT_TIMEOUT="15"  # Connect timeout
+MAX_TIME="30"           # Total timeout for web UI check
 
 # 1 = notify when Plex recovers after being down (requires state file)
 NOTIFY_ON_RECOVERY="1"
