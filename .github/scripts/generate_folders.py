@@ -45,32 +45,32 @@ SCRIPT_NAMES = {
 
 # Mapping of script filenames to descriptions (from README table)
 SCRIPT_DESCRIPTIONS = {
-    'apply-unraid-perms.sh': 'Applies Unraid-style "new permissions" (nobody:users, Docker-safe) to configured paths.',
-    'btrfs-scrub.sh': 'Runs a Btrfs scrub on a cache/device, logs output, and sends Unraid notifications on start/success/failure.',
-    'check-plex-status.sh': 'Checks if the Plex Docker container is running and if the web UI responds; restarts the container if the UI is unreachable.',
-    'check-smart-status.sh': 'Checks SMART health status of disks and sends an Unraid notification if any fail.',
-    'clean-docker-log-size.sh': 'Truncates Docker container log files to free space in docker.img. Shows before/after sizes.',
-    'clean-download-junk.sh': 'Removes NZB and torrent download junk (nfo, par2, samples, archives, etc.) and empty directories. Profile presets for nzb, torrent, or both.',
-    'clear-movies-download-folder.sh': 'Empties the movies download directory and prints a summary.',
-    'clear-plex-codecs.sh': 'Deletes Plex Media Server codec cache (Plex re-downloads as needed).',
-    'clear-torrent-download-folder.sh': 'Empties the torrent download directory and prints a summary.',
-    'clear-tv-shows-download-folder.sh': 'Empties the TV shows download directory and prints a summary.',
-    'delete-dangling-images.sh': 'Removes Docker images with no tag (dangling) to free space in docker.img.',
-    'disk-error-alert.sh': 'Checks syslog for md/storage errors and sends an Unraid dynamix alert if found. Schedule (e.g. hourly).',
-    'docker-image-usage-alert.sh': 'Alert on docker.img usage (default 70% / 85%).',
-    'flash-backup.sh': 'Flash drive backups to array (rotation + verify).',
-    'remove-os-metadata.sh': 'Removes macOS metadata files (.DS_Store, ._*, .Spotlight-V100, .Trashes, etc.) and Windows metadata files (Thumbs.db, desktop.ini, etc.).',
-    'out-of-memory-errors.sh': 'Checks syslog for "Out of memory" and sends an Unraid dynamix alert if found. Schedule (e.g. hourly).',
-    'parity-check-monitor.sh': 'Parity check progress notifications.',
-    'queue-sync-nzbget.sh': 'Syncs Sonarr/Radarr queues with NZBGet: removes *arr queue entries when the download is gone from NZBGet, blocklists, and triggers search.',
-    'language-guard-radarr.sh': 'Audits Radarr movie files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
-    'record-disk-assignments.sh': 'Writes current Unraid disk assignments to /boot/config/DISK_ASSIGNMENTS.txt.',
-    'server-info-push.sh': 'Sends a status summary (array/cache/appdata free space, CPU temps, running containers) via Unraid dynamix notify.',
-    'language-guard-sonarr.sh': 'Audits Sonarr episode files for acceptable audio languages and remediates bad releases by blocklisting, deleting, and re-searching.',
-    'user-scripts-updater.sh': 'Updates Unraid User Scripts folders from GitHub while preserving local config edits during upgrades.',
-    'update-radarr-profiles.sh': 'Updates Radarr quality profiles by year: current year → one profile, previous year → older movies profile.',
-    'update-sonarr-profiles.sh': 'Updates Sonarr quality profiles by show status: airing, upcoming, ended, continuing with no upcoming.',
-    'view-docker-log-size.sh': 'Lists Docker container log file sizes (largest first) to see if logging is filling docker.img.',
+    'apply-unraid-perms.sh': 'Apply Unraid "new permissions" (nobody:users) to configured paths. Requires root.',
+    'btrfs-scrub.sh': 'Scrub a Btrfs volume and notify on start, finish, or failure.',
+    'check-plex-status.sh': 'Restart Plex when the container runs but the web UI is down.',
+    'check-smart-status.sh': 'Notify if any disk fails SMART health checks. Requires root.',
+    'clean-docker-log-size.sh': 'Truncate Docker container logs to free space in docker.img.',
+    'clean-download-junk.sh': 'Remove download junk (nfo, par2, samples) and empty folders. Profiles: nzb, torrent, all.',
+    'clear-movies-download-folder.sh': 'Empty the movies download folder; optional minimum age before delete.',
+    'clear-plex-codecs.sh': 'Clear Plex codec cache; Plex re-downloads codecs as needed.',
+    'clear-torrent-download-folder.sh': 'Empty the torrent download folder; optional minimum age before delete.',
+    'clear-tv-shows-download-folder.sh': 'Empty the TV download folder; optional minimum age before delete.',
+    'delete-dangling-images.sh': 'Remove untagged Docker images to reclaim docker.img space.',
+    'disk-error-alert.sh': 'Alert when new disk or array errors appear in syslog.',
+    'docker-image-usage-alert.sh': 'Alert when docker.img usage hits 70% warning or 85% critical.',
+    'flash-backup.sh': 'Backup USB flash to the array with rotation and optional verify.',
+    'remove-os-metadata.sh': 'Remove .DS_Store, Thumbs.db, and other OS metadata from paths.',
+    'out-of-memory-errors.sh': 'Alert when new out-of-memory kills appear in syslog.',
+    'parity-check-monitor.sh': 'Notify on parity check start, progress, completion, and errors.',
+    'queue-sync-nzbget.sh': 'Sync Sonarr/Radarr with NZBGet: drop stale queue items, blocklist, re-search.',
+    'language-guard-radarr.sh': 'Find Radarr movies with wrong audio; blocklist, delete, and re-search bad releases.',
+    'record-disk-assignments.sh': 'Export current disk slot assignments to flash config.',
+    'server-info-push.sh': 'Send one notify with space, temps, load, VMs, and containers.',
+    'language-guard-sonarr.sh': 'Find Sonarr episodes with wrong audio; blocklist, delete, and re-search bad releases.',
+    'user-scripts-updater.sh': 'Pull script updates from GitHub and merge your local EDIT settings.',
+    'update-radarr-profiles.sh': 'Assign Radarr quality profiles by movie year (current vs older).',
+    'update-sonarr-profiles.sh': 'Assign Sonarr quality profiles by series status (airing, upcoming, ended).',
+    'view-docker-log-size.sh': 'List Docker container log sizes, largest first, to spot docker.img bloat.',
 }
 
 
@@ -188,8 +188,8 @@ def main():
         # Get display name (auto-generate for new scripts not in mapping)
         display_name = SCRIPT_NAMES.get(script_file, script_file.replace('.sh', '').replace('-', ' ').title())
         
-        # Get description (prefer README parsed, fallback to hardcoded)
-        description = readme_descriptions.get(script_file, SCRIPT_DESCRIPTIONS.get(script_file, 'Unraid user script'))
+        # Plugin description: SCRIPT_DESCRIPTIONS is canonical; README is fallback.
+        description = SCRIPT_DESCRIPTIONS.get(script_file, readme_descriptions.get(script_file, 'Unraid user script'))
         
         # Sanitize folder name (folder name can differ from display name)
         # Unraid User Scripts shows the friendly name from the `name` file, so we

@@ -1,1 +1,1 @@
-Alert on new OOM syslog events
+Alert when new out-of-memory kills appear in syslog.

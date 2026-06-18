@@ -1,1 +1,1 @@
-Apply Unraid permissions (nobody:users); requires root
+Apply Unraid "new permissions" (nobody:users) to configured paths. Requires root.

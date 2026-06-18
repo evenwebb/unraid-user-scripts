@@ -1,1 +1,1 @@
-Sync *arr queues with NZBGet: remove stale items, blocklist, re-search
+Sync Sonarr/Radarr with NZBGet: drop stale queue items, blocklist, re-search.

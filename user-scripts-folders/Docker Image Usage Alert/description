@@ -1,1 +1,1 @@
-Alert on docker.img usage (default 70% / 85%)
+Alert when docker.img usage hits 70% warning or 85% critical.

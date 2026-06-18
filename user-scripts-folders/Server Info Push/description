@@ -1,1 +1,1 @@
-Push server status summary via notify
+Send one notify with space, temps, load, VMs, and containers.

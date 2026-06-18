@@ -1,1 +1,1 @@
-Remove NZB/torrent junk; profiles: `nzb`, `torrent`, `all`, `custom`
+Remove download junk (nfo, par2, samples) and empty folders. Profiles: nzb, torrent, all.

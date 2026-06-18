@@ -1,1 +1,1 @@
-Alert on new md/storage syslog errors
+Alert when new disk or array errors appear in syslog.

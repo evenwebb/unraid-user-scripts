@@ -1,1 +1,1 @@
-Remove `.DS_Store`, `Thumbs.db`, and similar metadata
+Remove .DS_Store, Thumbs.db, and other OS metadata from paths.

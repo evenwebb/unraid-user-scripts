@@ -1,1 +1,1 @@
-Audit movie audio languages; remediate via blocklist + re-search
+Find Radarr movies with wrong audio; blocklist, delete, and re-search bad releases.

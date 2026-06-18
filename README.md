@@ -62,31 +62,31 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 
 | Script | Description |
 |:-------|:------------|
-| **queue-sync-nzbget.sh** | Sync *arr queues with NZBGet: remove stale items, blocklist, re-search |
-| **language-guard-radarr.sh** | Audit movie audio languages; remediate via blocklist + re-search |
-| **language-guard-sonarr.sh** | Same for Sonarr episodes |
-| **update-radarr-profiles.sh** | Assign quality profiles by movie year |
-| **update-sonarr-profiles.sh** | Assign quality profiles by show status |
+| **queue-sync-nzbget.sh** | Sync Sonarr/Radarr with NZBGet: drop stale items, blocklist, re-search |
+| **language-guard-radarr.sh** | Fix Radarr movies with wrong audio; blocklist and re-search |
+| **language-guard-sonarr.sh** | Fix Sonarr episodes with wrong audio; blocklist and re-search |
+| **update-radarr-profiles.sh** | Assign Radarr quality profiles by movie year |
+| **update-sonarr-profiles.sh** | Assign Sonarr quality profiles by series status |
 
 ### Downloads · cleanup
 
 | Script | Description |
 |:-------|:------------|
-| **clean-download-junk.sh** | Remove NZB/torrent junk; profiles: `nzb`, `torrent`, `all`, `custom` |
-| **clear-movies-download-folder.sh** | Empty movies download folder (optional age filter) |
-| **clear-torrent-download-folder.sh** | Empty torrent download folder (optional age filter) |
-| **clear-tv-shows-download-folder.sh** | Empty TV download folder (optional age filter) |
-| **remove-os-metadata.sh** | Remove `.DS_Store`, `Thumbs.db`, and similar metadata |
+| **clean-download-junk.sh** | Remove download junk and empty folders; profiles: nzb, torrent, all |
+| **clear-movies-download-folder.sh** | Empty movies download folder; optional age filter |
+| **clear-torrent-download-folder.sh** | Empty torrent download folder; optional age filter |
+| **clear-tv-shows-download-folder.sh** | Empty TV download folder; optional age filter |
+| **remove-os-metadata.sh** | Remove .DS_Store, Thumbs.db, and OS metadata |
 
 ### Docker · Plex
 
 | Script | Description |
 |:-------|:------------|
-| **check-plex-status.sh** | Check Plex container + web UI; restart if down |
+| **check-plex-status.sh** | Restart Plex when the web UI stops responding |
 | **clear-plex-codecs.sh** | Clear Plex codec cache |
-| **clean-docker-log-size.sh** | Truncate container logs (free docker.img space) |
+| **clean-docker-log-size.sh** | Truncate Docker logs to free docker.img space |
 | **delete-dangling-images.sh** | Remove untagged Docker images |
-| **docker-image-usage-alert.sh** | Alert on docker.img usage (default 70% / 85%) |
+| **docker-image-usage-alert.sh** | Alert when docker.img hits 70% or 85% |
 | **view-docker-log-size.sh** | List largest container logs |
 
 ### Array · disks · parity
@@ -94,20 +94,20 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | Script | Description |
 |:-------|:------------|
 | **apply-unraid-perms.sh** | Apply Unraid permissions (nobody:users); requires root |
-| **btrfs-scrub.sh** | Btrfs scrub with notifications |
-| **check-smart-status.sh** | SMART health alert; requires root |
-| **disk-error-alert.sh** | Alert on new md/storage syslog errors |
-| **flash-backup.sh** | Flash drive backups to array (rotation + verify) |
-| **out-of-memory-errors.sh** | Alert on new OOM syslog events |
-| **parity-check-monitor.sh** | Parity check progress notifications |
-| **record-disk-assignments.sh** | Export disk assignments to flash |
+| **btrfs-scrub.sh** | Scrub Btrfs volume; notify on start, finish, or failure |
+| **check-smart-status.sh** | Notify on SMART disk failures; requires root |
+| **disk-error-alert.sh** | Alert on new disk or array syslog errors |
+| **flash-backup.sh** | Backup USB flash to array with rotation and verify |
+| **out-of-memory-errors.sh** | Alert on new OOM kills in syslog |
+| **parity-check-monitor.sh** | Notify during parity checks (start, progress, done) |
+| **record-disk-assignments.sh** | Export disk slot assignments to flash |
 
 ### Server · misc
 
 | Script | Description |
 |:-------|:------------|
 | **server-info-push.sh** | Push server status summary via notify |
-| **user-scripts-updater.sh** | Update plugin folders from GitHub (see [Updater](#-user-scripts-updater)) |
+| **user-scripts-updater.sh** | Pull updates from GitHub; keeps your EDIT settings |
 
 ---
 
