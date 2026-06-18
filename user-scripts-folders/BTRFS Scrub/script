@@ -124,7 +124,7 @@ main() {
         local scrub_status
         scrub_status=$(btrfs scrub status "$SCRUB_DEVICE" 2>/dev/null)
         if echo "$scrub_status" | grep -qi "running"; then
-            log "Scrub already in progress on $SCRUB_DEVICE — skipping (RESUME_EXISTING=1)."
+            log "Scrub already in progress on $SCRUB_DEVICE - skipping (RESUME_EXISTING=1)."
             return 0
         fi
     fi
@@ -134,7 +134,7 @@ main() {
             log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script."
         fi
     else
-        [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && log "Notify script not found — running without notifications."
+        [[ "$ENABLE_NOTIFICATIONS" == "1" ]] && log "Notify script not found - running without notifications."
     fi
 
     if btrfs scrub start -B "$SCRUB_DEVICE" > "$log_dest" 2>&1; then

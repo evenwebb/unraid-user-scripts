@@ -93,14 +93,14 @@ resolve_smart_disk() {
             fi
         done
         shopt -u nullglob
-        log "Skipping $disk (NVMe controller only — no namespace such as /dev/nvme${BASH_REMATCH[1]}n1 found for SMART)"
+        log "Skipping $disk (NVMe controller only - no namespace such as /dev/nvme${BASH_REMATCH[1]}n1 found for SMART)"
         return 1
     fi
 
     if [[ -e "$disk" ]]; then
-        log "Skipping $disk (not a block device — SMART needs a disk path like /dev/sdX or /dev/nvme0n1)"
+        log "Skipping $disk (not a block device - SMART needs a disk path like /dev/sdX or /dev/nvme0n1)"
     else
-        log "Skipping $disk (device not found — check the path or add it to DISKS in this script)"
+        log "Skipping $disk (device not found - check the path or add it to DISKS in this script)"
     fi
     return 1
 }
@@ -164,7 +164,7 @@ main() {
         ((checked++)) || true
 
         if [[ -z "$output" && -n "$err_text" ]]; then
-            log_err "  $disk: smartctl failed — ${err_text} (try running this script as root if permission was denied)"
+            log_err "  $disk: smartctl failed - ${err_text} (try running this script as root if permission was denied)"
             continue
         fi
 
@@ -190,7 +190,7 @@ main() {
                 log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
             fi
         else
-            log_err "NOTIFY_SCRIPT is not executable — alert was not sent. Check NOTIFY_SCRIPT in this script."
+            log_err "NOTIFY_SCRIPT is not executable - alert was not sent. Check NOTIFY_SCRIPT in this script."
         fi
         return 1
     fi

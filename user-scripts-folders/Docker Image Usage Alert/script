@@ -272,7 +272,7 @@ main() {
             "warning"
         write_state_level "$STATE_FILE" 1 || true
     elif [[ "$current_level" -eq 0 && "$prev_level" -gt 0 ]]; then
-        log "Docker image usage dropped to ${usage_pct}% — below all thresholds. Resetting state."
+        log "Docker image usage dropped to ${usage_pct}% - below all thresholds. Resetting state."
         write_state_level "$STATE_FILE" 0 || true
     else
         log "Usage is at level ${current_level} (previous: ${prev_level}); no new alert needed."

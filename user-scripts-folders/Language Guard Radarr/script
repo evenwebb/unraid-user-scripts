@@ -5,7 +5,7 @@
 #
 # Description:
 #   English-original movies need English audio; other originals need English or original language.
-#   Defaults to dry run — set DRY_RUN=0 for live remediation.
+#   Defaults to dry run - set DRY_RUN=0 for live remediation.
 #
 # Usage:
 #   ./language-guard-radarr.sh
@@ -119,15 +119,15 @@ _friendly_curl_err() {
   local msg="$1"
   msg="${msg#curl: }"
   if [[ "$msg" == *"Could not resolve host"* ]]; then
-    echo "The server name could not be found — check the IP address or hostname in the script."
+    echo "The server name could not be found - check the IP address or hostname in the script."
   elif [[ "$msg" == *"Connection refused"* ]]; then
-    echo "Connection refused — is Radarr running and is the port number correct?"
+    echo "Connection refused - is Radarr running and is the port number correct?"
   elif [[ "$msg" == *"Failed to connect"* ]]; then
-    echo "Could not connect — check that Radarr is running and the URL is correct."
+    echo "Could not connect - check that Radarr is running and the URL is correct."
   elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
-    echo "The connection timed out — check the URL and network."
+    echo "The connection timed out - check the URL and network."
   elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
-    echo "Login was rejected — wrong API key."
+    echo "Login was rejected - wrong API key."
   else
     echo "$msg"
   fi
@@ -142,11 +142,11 @@ _log_service_failure() {
   case "$code" in
     401) log_line "ERROR" "Wrong API key for ${service} while ${task}. ${fix_hint}" ;;
     403) log_line "ERROR" "${service} refused access while ${task}. ${fix_hint}" ;;
-    404) log_line "ERROR" "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script — it should look like http://your-server:7878 with no extra path." ;;
+    404) log_line "ERROR" "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script - it should look like http://your-server:7878 with no extra path." ;;
     000|"") log_line "ERROR" "Could not connect to ${service} at ${url} while ${task}. Check RADARR_URL, that Radarr is running, and that the port is correct." ;;
     *)
       if [[ -n "$body" ]] && ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
-        log_line "ERROR" "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check RADARR_URL in this script."
+        log_line "ERROR" "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong - check RADARR_URL in this script."
       else
         log_line "ERROR" "${service} returned an error while ${task}. ${fix_hint}"
       fi
@@ -447,7 +447,7 @@ verify_radarr_connection() {
   payload="$(api_get "/api/v3/system/status" "checking the connection")" || exit 1
   app_name="$(jq_read "$payload" -r '.appName // empty')"
   if [[ "$app_name" != "Radarr" ]]; then
-    log_line "ERROR" "Connected but the response was not from Radarr — check RADARR_URL and RADARR_API_KEY in this script."
+    log_line "ERROR" "Connected but the response was not from Radarr - check RADARR_URL and RADARR_API_KEY in this script."
     exit 1
   fi
 }

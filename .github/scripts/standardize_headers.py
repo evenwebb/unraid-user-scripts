@@ -46,7 +46,7 @@ HEADERS: dict[str, str] = {
         "Apply Unraid-style permissions (nobody:users, Docker-safe) to configured paths.",
         [
             "Recursively chmod/chown paths for Unraid shares and Docker.",
-            "Can take a long time on large arrays — check PERM_PATHS before running.",
+            "Can take a long time on large arrays  -  check PERM_PATHS before running.",
         ],
         ["./apply-unraid-perms.sh", "Edit variables in EDIT FOR YOUR SETUP below.", "DRY_RUN: 1 = preview only, 0 = apply changes"],
         [
@@ -176,9 +176,9 @@ HEADERS: dict[str, str] = {
     "delete-dangling-images.sh": hdr(
         "delete-dangling-images.sh",
         "Remove untagged (dangling) Docker images to free docker.img space.",
-        ["Only removes dangling images — not images in use by containers."],
+        ["Only removes dangling images  -  not images in use by containers."],
         ["./delete-dangling-images.sh"],
-        ["No user settings — runs docker rmi on dangling images"],
+        ["No user settings  -  runs docker rmi on dangling images"],
     ),
     "disk-error-alert.sh": hdr(
         "disk-error-alert.sh",
@@ -229,7 +229,7 @@ HEADERS: dict[str, str] = {
         "Audit Radarr movie audio languages; fix bad releases via blocklist, delete, and search.",
         [
             "English-original movies need English audio; other originals need English or original language.",
-            "Defaults to dry run — set DRY_RUN=0 for live remediation.",
+            "Defaults to dry run  -  set DRY_RUN=0 for live remediation.",
         ],
         [
             "./language-guard-radarr.sh",
@@ -252,7 +252,7 @@ HEADERS: dict[str, str] = {
         "Audit Sonarr episode audio languages; fix bad releases via blocklist, delete, and search.",
         [
             "Same language rules as language-guard-radarr.sh for TV episodes.",
-            "Defaults to dry run — set DRY_RUN=0 for live remediation.",
+            "Defaults to dry run  -  set DRY_RUN=0 for live remediation.",
         ],
         [
             "./language-guard-sonarr.sh",

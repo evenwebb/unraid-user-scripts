@@ -18,7 +18,7 @@
 
 </div>
 
-If you run **Unraid** at home, the [User Scripts](https://unraid.net/community/apps) plugin is a simple way to run bash tasks from the web UI — scheduled cleanups, health checks, API syncs, and notifications without living in SSH. This repository is a collection of scripts I wrote for my own server and shared here: keeping Sonarr, Radarr, and NZBGet queues aligned, clearing download folders safely, watching disk and parity health, backing up flash, trimming Docker, and updating installed scripts while keeping your local settings.
+If you run **Unraid** at home, the [User Scripts](https://unraid.net/community/apps) plugin is a simple way to run bash tasks from the web UI - scheduled cleanups, health checks, API syncs, and notifications without living in SSH. This repository is a collection of scripts I wrote for my own server and shared here: keeping Sonarr, Radarr, and NZBGet queues aligned, clearing download folders safely, watching disk and parity health, backing up flash, trimming Docker, and updating installed scripts while keeping your local settings.
 
 Each script is a single self-contained file. Copy the ready-made plugin folders to your flash drive, or paste a script into the User Scripts editor, change the variables in the **EDIT FOR YOUR SETUP** section at the top, then run once or put it on a schedule.
 
@@ -137,7 +137,7 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 3. CI runs `bash -n` on every script and verifies folder sync.
 4. Test on Unraid with `DRY_RUN=1` before live runs.
 
-**Tested on:** Unraid 6.12.x (primary). Unraid 7.x parity/scheduler fields may differ — report issues if notifications misfire.
+**Tested on:** Unraid 6.12.x (primary). Unraid 7.x parity/scheduler fields may differ - report issues if notifications misfire.
 
 ---
 

@@ -65,7 +65,7 @@ main() {
         return 1
     fi
     if [[ ! -r "$DISKS_INI" ]]; then
-        log_err "Cannot read $DISKS_INI — is Unraid running? Check DISKS_INI in this script."
+        log_err "Cannot read $DISKS_INI - is Unraid running? Check DISKS_INI in this script."
         return 1
     fi
 
@@ -137,4 +137,4 @@ main() {
     fi
 }
 
-main "$@"
+main "$@" || exit 1

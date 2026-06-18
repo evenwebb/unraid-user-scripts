@@ -5,7 +5,7 @@
 #
 # Description:
 #   Recursively chmod/chown paths for Unraid shares and Docker.
-#   Can take a long time on large arrays — check PERM_PATHS before running.
+#   Can take a long time on large arrays - check PERM_PATHS before running.
 #
 # Usage:
 #   ./apply-unraid-perms.sh
@@ -90,7 +90,7 @@ is_dangerous_path() {
     return 1
 }
 
-# Reject paths that are too shallow (e.g. /mnt/user alone) — same minimum depth as is_safe_delete_path.
+# Reject paths that are too shallow (e.g. /mnt/user alone) - same minimum depth as is_safe_delete_path.
 is_safe_perm_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
@@ -113,7 +113,7 @@ dedupe_paths() {
         path_set["$p"]=1
     done
 
-    # Sort paths by length (shorter paths first — parents come before children)
+    # Sort paths by length (shorter paths first - parents come before children)
     for p in "${!path_set[@]}"; do
         sorted+=("$p")
     done
@@ -182,7 +182,7 @@ main() {
         fi
 
         if ! is_safe_perm_path "$path"; then
-            log_err "Skipping $path (path is too shallow — use a subdirectory, e.g. /mnt/user/downloads/...)"
+            log_err "Skipping $path (path is too shallow - use a subdirectory, e.g. /mnt/user/downloads/...)"
             any_failed=1
             continue
         fi

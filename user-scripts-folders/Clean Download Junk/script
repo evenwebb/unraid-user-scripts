@@ -33,11 +33,11 @@ set -o pipefail
 ###############################################################################
 
 # Profile presets:
-#   nzb     — Usenet/NZBGet completed download paths + NZB junk patterns
-#   torrent — torrent client completed paths + torrent junk patterns
-#   all     — both NZB and torrent presets combined (deduped); removes sidecar files
+#   nzb     - Usenet/NZBGet completed download paths + NZB junk patterns
+#   torrent - torrent client completed paths + torrent junk patterns
+#   all     - both NZB and torrent presets combined (deduped); removes sidecar files
 #             (.nfo, images, archives, etc.) unless EXCLUDE_PATTERNS is set
-#   custom  — use FOLDERS and JUNK_EXTENSIONS below only
+#   custom  - use FOLDERS and JUNK_EXTENSIONS below only
 PROFILE="all"
 
 # 1 = preview only (no deletions), 0 = delete files
@@ -205,7 +205,7 @@ resolve_profile_config() {
         return 1
     fi
 
-    log "Profile: ${PROFILE} — ${#ACTIVE_FOLDERS[@]} folder(s), ${#ACTIVE_JUNK_EXTENSIONS[@]} junk pattern(s)"
+    log "Profile: ${PROFILE} - ${#ACTIVE_FOLDERS[@]} folder(s), ${#ACTIVE_JUNK_EXTENSIONS[@]} junk pattern(s)"
     return 0
 }
 
@@ -238,7 +238,7 @@ delete_junk_files() {
     local p lower
     for p in "${ACTIVE_JUNK_EXTENSIONS[@]}"; do
         [[ -z "$p" ]] && continue
-        lower="${p,,}"
+        lower=$(echo "$p" | tr '[:upper:]' '[:lower:]')
         if [[ "$lower" == ".r[0-9]" || "$lower" == ".r[0-9][0-9]" ]]; then
             has_r_splits=1
             continue

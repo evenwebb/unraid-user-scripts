@@ -127,15 +127,15 @@ _friendly_curl_err() {
     local msg="$1"
     msg="${msg#curl: }"
     if [[ "$msg" == *"Could not resolve host"* ]]; then
-        echo "The server name could not be found — check the IP address or hostname in the script."
+        echo "The server name could not be found - check the IP address or hostname in the script."
     elif [[ "$msg" == *"Connection refused"* ]]; then
-        echo "Connection refused — is Radarr running and is the port number correct?"
+        echo "Connection refused - is Radarr running and is the port number correct?"
     elif [[ "$msg" == *"Failed to connect"* ]]; then
-        echo "Could not connect — check that Radarr is running and the URL is correct."
+        echo "Could not connect - check that Radarr is running and the URL is correct."
     elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
-        echo "The connection timed out — check the URL and network."
+        echo "The connection timed out - check the URL and network."
     elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
-        echo "Login was rejected — wrong API key."
+        echo "Login was rejected - wrong API key."
     else
         echo "$msg"
     fi
@@ -150,11 +150,11 @@ _log_service_failure() {
     case "$code" in
         401) log_err "Wrong API key for ${service} while ${task}. ${fix_hint}" ;;
         403) log_err "${service} refused access while ${task}. ${fix_hint}" ;;
-        404) log_err "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script — it should look like http://your-server:7878 with no extra path." ;;
+        404) log_err "Could not find ${service} at ${url} while ${task}. Check RADARR_URL in this script - it should look like http://your-server:7878 with no extra path." ;;
         000|"") log_err "Could not connect to ${service} at ${url} while ${task}. Check RADARR_URL, that Radarr is running, and that the port is correct." ;;
         *)
             if [[ -n "$body" ]] && ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
-                log_err "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check RADARR_URL in this script."
+                log_err "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong - check RADARR_URL in this script."
             else
                 log_err "${service} returned an error while ${task}. ${fix_hint}"
             fi
@@ -194,15 +194,24 @@ _radarr_http_get() {
 }
 
 _radarr_fetch_all_movies() {
-    local page=1 page_size=250 chunk combined='[]' count
-    while true; do
+    local page=1 page_size=250 chunk combined='[]' count first_id prev_first_id="" max_pages=200
+    while [[ "$page" -le "$max_pages" ]]; do
         chunk=$(_radarr_http_get "/api/v3/movie?page=${page}&pageSize=${page_size}&sortKey=title&sortDirection=asc" "loading movie list (page ${page})") || return 1
         count=$(printf '%s' "$chunk" | jq 'length')
         [[ "$count" -eq 0 ]] && break
+        first_id=$(printf '%s' "$chunk" | jq -r '.[0].id // empty')
+        if [[ "$page" -gt 1 && -n "$prev_first_id" && "$first_id" == "$prev_first_id" ]]; then
+            break
+        fi
+        prev_first_id="$first_id"
         combined=$(jq -s 'add' <<< "$combined" "$chunk")
         [[ "$count" -lt "$page_size" ]] && break
         page=$((page + 1))
     done
+    if [[ "$page" -gt "$max_pages" ]]; then
+        log_err "Movie list pagination exceeded ${max_pages} pages."
+        return 1
+    fi
     printf '%s' "$combined"
 }
 
@@ -211,7 +220,7 @@ _verify_radarr_connection() {
     payload="$(_radarr_http_get "/api/v3/system/status" "checking the connection")" || return 1
     app_name=$(printf '%s' "$payload" | jq -r '.appName // empty')
     if [[ "$app_name" != "Radarr" ]]; then
-        log_err "Connected but the response was not from Radarr — check RADARR_URL and RADARR_API_KEY in this script."
+        log_err "Connected but the response was not from Radarr - check RADARR_URL and RADARR_API_KEY in this script."
         return 1
     fi
     return 0

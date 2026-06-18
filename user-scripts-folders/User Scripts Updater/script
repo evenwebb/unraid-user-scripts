@@ -84,8 +84,8 @@ INSTALL_MISSING="0"
 RESET_CONFIG="0"
 
 # How to resolve conflicts when a config variable exists locally and upstream:
-# "keep-local"  — your local value wins (default, safest)
-# "use-upstream" — upstream default overwrites your local value when they differ
+# "keep-local"  - your local value wins (default, safest)
+# "use-upstream" - upstream default overwrites your local value when they differ
 CONFIG_CONFLICT_MODE="keep-local"
 
 # 1 = show a diff of config changes (new/removed/changed vars) during merge
@@ -128,13 +128,13 @@ _friendly_curl_err() {
   local msg="$1"
   msg="${msg#curl: }"
   if [[ "$msg" == *"Could not resolve host"* ]]; then
-    echo "The server name could not be found — check ZIP_URL in this script."
+    echo "The server name could not be found - check ZIP_URL in this script."
   elif [[ "$msg" == *"Connection refused"* ]] || [[ "$msg" == *"Failed to connect"* ]]; then
-    echo "Could not connect — check ZIP_URL and your network."
+    echo "Could not connect - check ZIP_URL and your network."
   elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
-    echo "The download timed out — increase DOWNLOAD_MAX_TIME in this script or check your network."
+    echo "The download timed out - increase DOWNLOAD_MAX_TIME in this script or check your network."
   elif [[ "$msg" == *"404"* ]]; then
-    echo "The file was not found at that URL — check ZIP_URL in this script."
+    echo "The file was not found at that URL - check ZIP_URL in this script."
   else
     echo "$msg"
   fi
@@ -389,7 +389,7 @@ prepare_source_folders() {
 }
 
 get_config_range() {
-  # Prints: "<start_line> <end_line>" — content between EDIT markers (####### blocks).
+  # Prints: "<start_line> <end_line>" - content between EDIT markers (####### blocks).
   local file="$1"
   local line lineno=0 phase=0 start=0 end=0
   while IFS= read -r line || [[ -n "$line" ]]; do

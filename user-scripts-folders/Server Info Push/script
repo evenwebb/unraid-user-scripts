@@ -45,7 +45,7 @@ APPDATA_MOUNT="/mnt/appdata"  # Appdata share
 # Include UPS status if available (1 = yes, 0 = no)
 INCLUDE_UPS="1"
 
-# Section toggles — set to 0 to hide a section from the notification output
+# Section toggles - set to 0 to hide a section from the notification output
 SHOW_STORAGE="1"
 SHOW_TEMPS="1"
 SHOW_MEMORY="1"
@@ -88,7 +88,7 @@ _format_notify_lines() {
     sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*/  /'
 }
 
-# Validate path for safety (reject .., - prefix, newlines — same idea as disk-error-alert / dynamix paths)
+# Validate path for safety (reject .., - prefix, newlines - same idea as disk-error-alert / dynamix paths)
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
@@ -213,7 +213,7 @@ main() {
     local cachespacefree=$(df -h "$CACHE_MOUNT" 2>/dev/null | awk 'NR==2 {print $4}' || echo "N/A")
     local appdataspacefree=$(df -h "$APPDATA_MOUNT" 2>/dev/null | awk 'NR==2 {print $4}' || echo "N/A")
 
-    # Temperatures (one sensor reading per line — easier to read than comma-joined)
+    # Temperatures (one sensor reading per line - easier to read than comma-joined)
     local temp="N/A"
     if command -v sensors >/dev/null 2>&1; then
         temp=$(timeout 5 sensors 2>/dev/null | grep -E '°[CF]' | head -n 3 | _format_notify_lines | paste -sd '\n' - || true)
@@ -235,14 +235,14 @@ main() {
     local uptime_str
     uptime_str=$(format_uptime "$uptime_secs")
 
-    # VMs (virsh/libvirt) — only when section is enabled
+    # VMs (virsh/libvirt) - only when section is enabled
     local vmslist="none"
     if [[ "$SHOW_VMS" == "1" ]] && command -v virsh >/dev/null 2>&1; then
         vmslist=$(virsh list --state-running --name 2>/dev/null | sed '/^[[:space:]]*$/d' | paste -sd ', ' - || true)
         [[ -z "$vmslist" ]] && vmslist="none"
     fi
 
-    # Docker containers — only when section is enabled
+    # Docker containers - only when section is enabled
     local docsrunning=""
     local docker_running=0
     if [[ "$SHOW_CONTAINERS" == "1" ]] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

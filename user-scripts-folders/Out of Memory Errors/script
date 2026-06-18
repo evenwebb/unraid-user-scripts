@@ -171,7 +171,7 @@ main() {
                     log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script (currently: $NOTIFY_SCRIPT)."
                 fi
             else
-                log_err "NOTIFY_SCRIPT is not executable — alert was not sent. Check NOTIFY_SCRIPT in this script."
+                log_err "NOTIFY_SCRIPT is not executable - alert was not sent. Check NOTIFY_SCRIPT in this script."
             fi
         fi
         return 1

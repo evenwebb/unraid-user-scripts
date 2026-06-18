@@ -135,10 +135,13 @@ ini_get() {
 count_parity_sync_errors_from_syslog() {
     local start_line="${1:-1}"
     local syslog="/var/log/syslog"
+    local n
     [[ ! -r "$syslog" ]] && { echo 0; return 0; }
     [[ ! "$start_line" =~ ^[0-9]+$ ]] || [[ "$start_line" -lt 1 ]] && start_line=1
-    tail -n +"$start_line" "$syslog" 2>/dev/null \
-        | grep -ciE 'parity.*(error|mismatch)|sync error|read error.*parity|parity.*read error' 2>/dev/null || echo 0
+    n=$(tail -n +"$start_line" "$syslog" 2>/dev/null \
+        | grep -ciE 'parity.*(error|mismatch)|sync error|read error.*parity|parity.*read error' 2>/dev/null) || n=0
+    [[ -z "$n" || ! "$n" =~ ^[0-9]+$ ]] && n=0
+    echo "$n"
 }
 
 get_syslog_line_count() {
@@ -148,18 +151,22 @@ get_syslog_line_count() {
 }
 
 # Read state file: <last_check_uuid> <last_position_pct> [syslog_start_line]
+# Returns a fourth field: legacy=1 when the file predates syslog line tracking (two fields only).
 read_parity_state() {
     local f="$1"
-    [[ ! -f "$f" || ! -r "$f" ]] && { echo "none 0 1"; return 0; }
+    [[ ! -f "$f" || ! -r "$f" ]] && { echo "none 0 1 0"; return 0; }
     local line
     line=$(tr -d '\r' < "$f" 2>/dev/null | head -1)
-    [[ -z "$line" ]] && { echo "none 0 1"; return 0; }
-    local uuid pct start_line
+    [[ -z "$line" ]] && { echo "none 0 1 0"; return 0; }
+    local uuid pct start_line legacy=0
+    if [[ "$line" =~ ^[^[:space:]]+[[:space:]]+[0-9]+$ ]]; then
+        legacy=1
+    fi
     read -r uuid pct start_line <<< "$line"
     uuid="${uuid:-none}"
     pct="${pct:-0}"
     start_line="${start_line:-1}"
-    echo "$uuid $pct $start_line"
+    echo "$uuid $pct $start_line $legacy"
 }
 
 write_parity_state() {
@@ -191,7 +198,7 @@ format_duration() {
 
 main() {
     if [[ ! -r "$VAR_INI" ]]; then
-        log_err "Cannot read $VAR_INI — is Unraid emhttp running? Check VAR_INI in this script."
+        log_err "Cannot read $VAR_INI - is Unraid emhttp running? Check VAR_INI in this script."
         return 1
     fi
     if [[ ! "$PROGRESS_MILESTONE_PCT" =~ ^[0-9]+$ ]] || [[ "$PROGRESS_MILESTONE_PCT" -eq 0 ]]; then
@@ -220,9 +227,9 @@ main() {
     fi
 
     if [[ $is_checking -eq 0 ]]; then
-        # No check running — detect if one just finished
-        local last_uuid last_pct last_start_line
-        read -r last_uuid last_pct last_start_line < <(read_parity_state "$STATE_FILE")
+        # No check running - detect if one just finished
+        local last_uuid last_pct last_start_line last_legacy
+        read -r last_uuid last_pct last_start_line last_legacy < <(read_parity_state "$STATE_FILE")
         if [[ "$last_uuid" != "none" ]]; then
             log "Parity check finished (was at ${last_pct}%)."
             if [[ "$NOTIFY_ON_COMPLETION" == "1" ]]; then
@@ -230,13 +237,17 @@ main() {
                 local desc="The $kind has completed."
                 local importance="normal"
                 if [[ "$NOTIFY_ON_ERRORS" == "1" ]]; then
-                    local error_count
-                    error_count=$(count_parity_sync_errors_from_syslog "$last_start_line")
-                    if [[ "${error_count:-0}" -gt 0 ]]; then
-                        desc="The $kind has completed. Found ${error_count} parity/sync error(s) in syslog. Review the Unraid dashboard."
-                        importance="alert"
+                    if [[ "$last_legacy" == "1" ]]; then
+                        desc="The $kind has completed. Syslog error scan skipped (state file from before error-tracking upgrade)."
                     else
-                        desc="The $kind has completed. No parity/sync errors detected in syslog."
+                        local error_count
+                        error_count=$(count_parity_sync_errors_from_syslog "$last_start_line")
+                        if [[ "${error_count:-0}" -gt 0 ]]; then
+                            desc="The $kind has completed. Found ${error_count} parity/sync error(s) in syslog. Review the Unraid dashboard."
+                            importance="alert"
+                        else
+                            desc="The $kind has completed. No parity/sync errors detected in syslog."
+                        fi
                     fi
                 fi
                 send_unraid_notify "Parity Check Complete" "Parity check finished" \
@@ -259,8 +270,8 @@ main() {
     local check_uuid="${md_resync_action:-check}-${md_resync_size}"
 
     # Read last state
-    local last_uuid last_pct last_start_line
-    read -r last_uuid last_pct last_start_line < <(read_parity_state "$STATE_FILE")
+    local last_uuid last_pct last_start_line last_legacy
+    read -r last_uuid last_pct last_start_line last_legacy < <(read_parity_state "$STATE_FILE")
 
     # Detect if this is a new check
     if [[ "$last_uuid" == "none" || "$last_uuid" != "$check_uuid" ]]; then

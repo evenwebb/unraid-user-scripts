@@ -4,7 +4,7 @@
 # Remove untagged (dangling) Docker images to free docker.img space.
 #
 # Description:
-#   Only removes dangling images — not images in use by containers.
+#   Only removes dangling images - not images in use by containers.
 #
 # Usage:
 #   ./delete-dangling-images.sh
@@ -28,7 +28,7 @@ set -o pipefail
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
-# Uses `docker image prune -f --filter dangling=true` — removes untagged images only,
+# Uses `docker image prune -f --filter dangling=true` - removes untagged images only,
 # not images referenced by stopped containers or tags.
 
 ###############################################################################
@@ -62,7 +62,7 @@ main() {
         return 1
     fi
     if ! docker info >/dev/null 2>&1; then
-        log_err "Docker daemon not available — is Docker enabled in Unraid? (Settings → Docker → Enable Docker)"
+        log_err "Docker daemon not available - is Docker enabled in Unraid? (Settings → Docker → Enable Docker)"
         return 1
     fi
 

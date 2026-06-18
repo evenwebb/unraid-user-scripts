@@ -120,15 +120,15 @@ _friendly_curl_err() {
     local msg="$1"
     msg="${msg#curl: }"
     if [[ "$msg" == *"Could not resolve host"* ]]; then
-        echo "The server name could not be found — check the IP address or hostname in the script."
+        echo "The server name could not be found - check the IP address or hostname in the script."
     elif [[ "$msg" == *"Connection refused"* ]]; then
-        echo "Connection refused — is the app running and is the port number correct?"
+        echo "Connection refused - is the app running and is the port number correct?"
     elif [[ "$msg" == *"Failed to connect"* ]]; then
-        echo "Could not connect — check that the app is running and the URL is correct."
+        echo "Could not connect - check that the app is running and the URL is correct."
     elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
-        echo "The connection timed out — check the URL and network."
+        echo "The connection timed out - check the URL and network."
     elif [[ "$msg" == *"Unauthorized"* ]] || [[ "$msg" == *"401"* ]]; then
-        echo "Login was rejected — wrong username, password, or API key."
+        echo "Login was rejected - wrong username, password, or API key."
     else
         echo "$msg"
     fi
@@ -179,13 +179,13 @@ _log_service_failure() {
             if [[ "$task" == removing\ queue\ item* ]]; then
                 log_err "${service}: queue item not found while ${task} (it may already have been removed)."
             else
-                log_err "Could not find ${service} at ${url} while ${task}. Check the URL in this script — it should look like http://your-server:port with no extra path."
+                log_err "Could not find ${service} at ${url} while ${task}. Check the URL in this script - it should look like http://your-server:port with no extra path."
             fi
             ;;
         000|"") log_err "Could not connect to ${service} at ${url} while ${task}. Check the URL, that the app is running, and that the port is correct." ;;
         *)
             if [[ -n "$body" ]] && ! jq -e . <<< "$body" &>/dev/null; then
-                log_err "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong — check it in this script. Address tried: ${url}"
+                log_err "${service} replied with an unexpected page (not JSON) while ${task}. The URL may be wrong - check it in this script. Address tried: ${url}"
             else
                 log_err "${service} returned an error while ${task}. ${fix_hint} (address: ${url})"
             fi
@@ -401,8 +401,8 @@ _arr_queue() {
 process_radarr() {
   [[ "$SKIP_RADARR" == "1" ]] && return 0
   _arr_verify_auth "Radarr" "$RADARR_URL" "$RADARR_API_KEY" || return 1
-  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && {
-    log "Radarr: skipped — SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove *arr items without NZBGet queue entries to match)"
+  [[ "$SAFE_EMPTY_QUEUE" == "1" && "${nzbget_queue_count:-0}" -eq 0 ]] && {
+    log "Radarr: skipped - SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove queue items without NZBGet entries to match)"
     return 0
   }
   local records
@@ -481,8 +481,8 @@ process_radarr() {
 process_sonarr() {
   [[ "$SKIP_SONARR" == "1" ]] && return 0
   _arr_verify_auth "Sonarr" "$SONARR_URL" "$SONARR_API_KEY" || return 1
-  [[ "$SAFE_EMPTY_QUEUE" == "1" && ${#nzbget_set[@]} -eq 0 ]] && {
-    log "Sonarr: skipped — SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove *arr items without NZBGet queue entries to match)"
+  [[ "$SAFE_EMPTY_QUEUE" == "1" && "${nzbget_queue_count:-0}" -eq 0 ]] && {
+    log "Sonarr: skipped - SAFE_EMPTY_QUEUE=1 and NZBGet download queue is empty (won't remove queue items without NZBGet entries to match)"
     return 0
   }
   local records
@@ -650,7 +650,7 @@ main() {
 
     # Match Radarr/Sonarr downloadId against NZBID, NZBName, and File from listgroups
     declare -gA nzbget_set=()
-    local nzbget_queue_count=0
+    nzbget_queue_count=0
     while IFS=$'\t' read -r nzbid nzbname file; do
         nzbget_queue_count=$((nzbget_queue_count + 1))
         [[ -n "$nzbid" ]] && nzbget_set["$nzbid"]=1
@@ -676,7 +676,7 @@ main() {
     process_sonarr || exit_code=1
     log "Queue sync summary: Radarr stale=$radarr_stale_count removed=$radarr_removed_count remove_failures=$radarr_remove_failures unique_movies_to_search=$radarr_unique_movies_search | Sonarr stale=$sonarr_stale_count removed=$sonarr_removed_count remove_failures=$sonarr_remove_failures unique_episodes_to_search=$sonarr_unique_episodes_search unique_series_fallback=$sonarr_unique_series_search | dry_run=$DRY_RUN"
     if [[ "$exit_code" -ne 0 ]]; then
-        log_err "Queue sync finished with errors — see the ERROR lines above for what to fix."
+        log_err "Queue sync finished with errors - see the ERROR lines above for what to fix."
         exit 1
     fi
     log "Queue sync done"

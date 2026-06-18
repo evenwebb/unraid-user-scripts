@@ -37,7 +37,7 @@ set -o pipefail
 PLEX_CONTAINER_NAME="plex"
 
 # Plex web UI URL (used to verify the service is responding).
-# Prefer http://127.0.0.1:32400/... or your Unraid LAN IP — "localhost" often fails from the host
+# Prefer http://127.0.0.1:32400/... or your Unraid LAN IP - "localhost" often fails from the host
 # when Plex only binds certain interfaces (bridge/custom Docker networking).
 PLEX_WEB_UI="http://127.0.0.1:32400/web/index.html"
 
@@ -143,13 +143,13 @@ _friendly_curl_err() {
     local msg="$1"
     msg="${msg#curl: }"
     if [[ "$msg" == *"Could not resolve host"* ]]; then
-        echo "The server name could not be found — check PLEX_WEB_UI in this script."
+        echo "The server name could not be found - check PLEX_WEB_UI in this script."
     elif [[ "$msg" == *"Connection refused"* ]]; then
-        echo "Connection refused — is Plex running and is the port in PLEX_WEB_UI correct?"
+        echo "Connection refused - is Plex running and is the port in PLEX_WEB_UI correct?"
     elif [[ "$msg" == *"Failed to connect"* ]]; then
-        echo "Could not connect — check that Plex is running and PLEX_WEB_UI is correct."
+        echo "Could not connect - check that Plex is running and PLEX_WEB_UI is correct."
     elif [[ "$msg" == *"timed out"* ]] || [[ "$msg" == *"Timeout"* ]]; then
-        echo "The connection timed out — check PLEX_WEB_UI and network."
+        echo "The connection timed out - check PLEX_WEB_UI and network."
     else
         echo "$msg"
     fi

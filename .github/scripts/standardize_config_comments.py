@@ -6,7 +6,7 @@ REPO = Path(__file__).resolve().parents[2]
 NOTIFY_STD = "# Unraid Dynamix notify script (empty = disabled)"
 
 REPLACEMENTS: list[tuple[str, str, str]] = [
-    # (filename, old, new) — empty filename = all scripts
+    # (filename, old, new)  -  empty filename = all scripts
     ("", "# Unraid dynamix notify script\n", f"{NOTIFY_STD}\n"),
     ("", "# Unraid dynamix notify (default path; empty = disabled)\n", f"{NOTIFY_STD}\n"),
     ("", "# Optional: Unraid dynamix notify after run (empty = no notification)\n", f"{NOTIFY_STD}\n"),
@@ -68,7 +68,7 @@ REPLACEMENTS: list[tuple[str, str, str]] = [
     ("server-info-push.sh", "# Mounts to report free space\nARRAY_MOUNT=\"/mnt/user\"\nCACHE_MOUNT=\"/mnt/downloads\"\nAPPDATA_MOUNT=\"/mnt/appdata\"",
      "# Mount points for free-space report\nARRAY_MOUNT=\"/mnt/user\"      # Main array share\nCACHE_MOUNT=\"/mnt/downloads\" # Cache/downloads pool\nAPPDATA_MOUNT=\"/mnt/appdata\"  # Appdata share"),
     ("delete-dangling-images.sh", "###############################################################################\n# EDIT FOR YOUR SETUP\n###############################################################################\n\nlog() {",
-     "###############################################################################\n# EDIT FOR YOUR SETUP\n###############################################################################\n\n# No user configuration — prunes dangling Docker images.\n\nlog() {"),
+     "###############################################################################\n# EDIT FOR YOUR SETUP\n###############################################################################\n\n# No user configuration  -  prunes dangling Docker images.\n\nlog() {"),
 ]
 
 LANG_GUARD_RADARR_OLD = '''# Radarr
