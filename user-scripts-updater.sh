@@ -784,17 +784,18 @@ self_update_and_maybe_reexec() {
   local src_folders="$1"
   local src_folder dest_folder dest_script src_script folder_name running_script rc
 
-  if [[ "${USER_SCRIPTS_UPDATER_REEXEC:-0}" == "1" ]]; then
-    log "Continuing with updated User Scripts Updater; syncing remaining scripts."
-    return 0
-  fi
-
   src_folder="$(find_updater_src_folder "$src_folders")" || {
     log_err "User Scripts Updater folder not found in upstream source."
     return 1
   }
   folder_name="$(basename "$src_folder")"
   UPDATER_FOLDER_NAME="$folder_name"
+
+  if [[ "${USER_SCRIPTS_UPDATER_REEXEC:-0}" == "1" ]]; then
+    log "Continuing with updated User Scripts Updater; syncing remaining scripts."
+    return 0
+  fi
+
   dest_folder="$DEST_DIR/$folder_name"
   dest_script="$dest_folder/script"
   src_script="$src_folder/script"
