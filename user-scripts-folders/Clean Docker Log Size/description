@@ -1,1 +1,1 @@
-Truncate Docker container logs to free space in docker.img.
+Truncate oversized Docker logs to free space in docker.img.

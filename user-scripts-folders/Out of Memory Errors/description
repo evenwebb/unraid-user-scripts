@@ -1,1 +1,1 @@
-Alert when new out-of-memory kills appear in syslog.
+Notify when the OOM killer stops a process for lack of memory.

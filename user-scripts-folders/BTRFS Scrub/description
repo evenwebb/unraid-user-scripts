@@ -1,1 +1,1 @@
-Scrub a Btrfs volume and notify on start, finish, or failure.
+Run a Btrfs scrub and notify when it starts, finishes, or fails.

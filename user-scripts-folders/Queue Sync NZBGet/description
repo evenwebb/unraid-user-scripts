@@ -1,1 +1,1 @@
-Sync Sonarr/Radarr with NZBGet: drop stale queue items, blocklist, re-search.
+Remove stale Sonarr/Radarr queue items when NZBGet lost the download; blocklist and re-search.

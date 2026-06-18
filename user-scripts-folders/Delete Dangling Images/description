@@ -1,1 +1,1 @@
-Remove untagged Docker images to reclaim docker.img space.
+Remove untagged Docker images to free space in docker.img.

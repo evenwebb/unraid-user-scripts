@@ -1,1 +1,1 @@
-Restart Plex when the container runs but the web UI is down.
+Restart Plex automatically when the web UI stops responding.

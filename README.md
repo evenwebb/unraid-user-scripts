@@ -62,20 +62,20 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 
 | Script | Description |
 |:-------|:------------|
-| **queue-sync-nzbget.sh** | Sync Sonarr/Radarr with NZBGet: drop stale items, blocklist, re-search |
-| **language-guard-radarr.sh** | Fix Radarr movies with wrong audio; blocklist and re-search |
-| **language-guard-sonarr.sh** | Fix Sonarr episodes with wrong audio; blocklist and re-search |
-| **update-radarr-profiles.sh** | Assign Radarr quality profiles by movie year |
-| **update-sonarr-profiles.sh** | Assign Sonarr quality profiles by series status |
+| **queue-sync-nzbget.sh** | Remove stale *arr queue items when NZBGet lost the download |
+| **language-guard-radarr.sh** | Fix Radarr movies with wrong audio language |
+| **language-guard-sonarr.sh** | Fix Sonarr episodes with wrong audio language |
+| **update-radarr-profiles.sh** | Set Radarr quality profiles by movie release year |
+| **update-sonarr-profiles.sh** | Set Sonarr quality profiles by series airing status |
 
 ### Downloads · cleanup
 
 | Script | Description |
 |:-------|:------------|
-| **clean-download-junk.sh** | Remove download junk and empty folders; profiles: nzb, torrent, all |
-| **clear-movies-download-folder.sh** | Empty movies download folder; optional age filter |
-| **clear-torrent-download-folder.sh** | Empty torrent download folder; optional age filter |
-| **clear-tv-shows-download-folder.sh** | Empty TV download folder; optional age filter |
+| **clean-download-junk.sh** | Delete leftover download files and empty folders |
+| **clear-movies-download-folder.sh** | Clear movies download folder; optional age filter |
+| **clear-torrent-download-folder.sh** | Clear torrent download folder; optional age filter |
+| **clear-tv-shows-download-folder.sh** | Clear TV download folder; optional age filter |
 | **remove-os-metadata.sh** | Remove .DS_Store, Thumbs.db, and OS metadata |
 
 ### Docker · Plex
@@ -83,31 +83,31 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | Script | Description |
 |:-------|:------------|
 | **check-plex-status.sh** | Restart Plex when the web UI stops responding |
-| **clear-plex-codecs.sh** | Clear Plex codec cache |
-| **clean-docker-log-size.sh** | Truncate Docker logs to free docker.img space |
+| **clear-plex-codecs.sh** | Clear Plex codec cache to free space |
+| **clean-docker-log-size.sh** | Truncate oversized Docker logs |
 | **delete-dangling-images.sh** | Remove untagged Docker images |
-| **docker-image-usage-alert.sh** | Alert when docker.img hits 70% or 85% |
-| **view-docker-log-size.sh** | List largest container logs |
+| **docker-image-usage-alert.sh** | Warn at 70% docker.img; alert at 85% |
+| **view-docker-log-size.sh** | Show largest container logs |
 
 ### Array · disks · parity
 
 | Script | Description |
 |:-------|:------------|
-| **apply-unraid-perms.sh** | Apply Unraid permissions (nobody:users); requires root |
-| **btrfs-scrub.sh** | Scrub Btrfs volume; notify on start, finish, or failure |
+| **apply-unraid-perms.sh** | Fix share permissions for Unraid and Docker; requires root |
+| **btrfs-scrub.sh** | Run Btrfs scrub with start/finish/failure notifications |
 | **check-smart-status.sh** | Notify on SMART disk failures; requires root |
-| **disk-error-alert.sh** | Alert on new disk or array syslog errors |
-| **flash-backup.sh** | Backup USB flash to array with rotation and verify |
-| **out-of-memory-errors.sh** | Alert on new OOM kills in syslog |
-| **parity-check-monitor.sh** | Notify during parity checks (start, progress, done) |
-| **record-disk-assignments.sh** | Export disk slot assignments to flash |
+| **disk-error-alert.sh** | Notify on new disk or array syslog errors |
+| **flash-backup.sh** | Back up USB flash to the array with rotation |
+| **out-of-memory-errors.sh** | Notify when the OOM killer stops a process |
+| **parity-check-monitor.sh** | Notify during parity checks |
+| **record-disk-assignments.sh** | Save disk slot assignments to flash |
 
 ### Server · misc
 
 | Script | Description |
 |:-------|:------------|
-| **server-info-push.sh** | Push server status summary via notify |
-| **user-scripts-updater.sh** | Pull updates from GitHub; keeps your EDIT settings |
+| **server-info-push.sh** | Notification with space, temps, load, VMs, and containers |
+| **user-scripts-updater.sh** | Update all User Scripts from GitHub; keeps your settings |
 
 ---
 

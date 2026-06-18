@@ -1,1 +1,1 @@
-List Docker container log sizes, largest first, to spot docker.img bloat.
+Show which Docker containers have the largest logs before docker.img fills up.

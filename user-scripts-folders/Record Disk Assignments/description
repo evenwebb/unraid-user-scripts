@@ -1,1 +1,1 @@
-Export current disk slot assignments to flash config.
+Save which disk is in each slot to a file on flash.

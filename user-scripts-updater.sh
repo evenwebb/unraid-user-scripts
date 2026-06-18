@@ -802,8 +802,10 @@ sync_one_folder() {
 
   local reason_csv="${reasons[*]}"
   reason_csv="${reason_csv// /, }"
-  [[ "$RESET_CONFIG" == "1" ]] && reason_csv="${reason_csv}; config reset"
-  [[ -n "$merged_settings_note" ]] && reason_csv="${reason_csv}; ${merged_settings_note}"
+  [[ "$RESET_CONFIG" == "1" && " ${reasons[*]} " == *" script "* ]] && reason_csv="${reason_csv}; config reset"
+  if [[ -n "$merged_settings_note" && " ${reasons[*]} " == *" script "* ]]; then
+    reason_csv="${reason_csv}; ${merged_settings_note}"
+  fi
   if [[ "$DRY_RUN" == "1" ]]; then
     log "Would update: $folder_label ($reason_csv)"
   else
@@ -944,9 +946,6 @@ main() {
 
   local action="Updated"
   [[ "$DRY_RUN" == "1" ]] && action="Would update"
-  if [[ ${#updated_list[@]} -gt 0 ]]; then
-    log "${action}: $(list_to_csv "${updated_list[@]}")"
-  fi
   if [[ ${#skipped_list[@]} -gt 0 ]]; then
     log "Skipped: $(list_to_csv "${skipped_list[@]}")"
   fi

@@ -1,1 +1,1 @@
-Notify if any disk fails SMART health checks. Requires root.
+Notify when a disk fails its SMART health check. Requires root.
