@@ -63,9 +63,26 @@ PARALLEL_JOBS="0"
 ###############################################################################
 
 # Support merged configs that still have CHMOD_FLAGS as a plain string.
-if [[ "${CHMOD_FLAGS[*]}" == "${CHMOD_FLAGS[0]:-}" ]] && [[ "${#CHMOD_FLAGS[@]}" -eq 1 ]]; then
-    IFS=',' read -ra CHMOD_FLAGS <<< "${CHMOD_FLAGS[0]}"
-fi
+normalize_chmod_flags() {
+    local raw decl
+    if ! declare -p CHMOD_FLAGS &>/dev/null; then
+        CHMOD_FLAGS=(u-x,go-rwx,go+u,ugo+X)
+        return
+    fi
+    decl=$(declare -p CHMOD_FLAGS 2>/dev/null || true)
+    if [[ "$decl" != declare\ -a* ]]; then
+        raw="$CHMOD_FLAGS"
+        CHMOD_FLAGS=()
+        IFS=',' read -ra CHMOD_FLAGS <<< "$raw"
+        return
+    fi
+    if [[ ${#CHMOD_FLAGS[@]} -eq 1 && "${CHMOD_FLAGS[0]}" == *,* ]]; then
+        raw="${CHMOD_FLAGS[0]}"
+        CHMOD_FLAGS=()
+        IFS=',' read -ra CHMOD_FLAGS <<< "$raw"
+    fi
+}
+normalize_chmod_flags
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -101,24 +118,15 @@ is_safe_perm_path() {
 }
 
 # Remove duplicates and paths that are subpaths of others (process parent only).
-# Uses an associative array for O(n * depth) lookup instead of O(n^2).
 dedupe_paths() {
-    local -A path_set=()
-    local -a sorted=()
-    local p parent
+    local -a sorted=() result=()
+    local p other is_child i j tmp
 
-    # Build set of all input paths
     for p in "$@"; do
         [[ -z "$p" ]] && continue
-        path_set["$p"]=1
-    done
-
-    # Sort paths by length (shorter paths first - parents come before children)
-    for p in "${!path_set[@]}"; do
         sorted+=("$p")
     done
-    # Simple bubble-like insertion for few paths (typically 2-5 entries)
-    local i j tmp
+
     for ((i = 0; i < ${#sorted[@]}; i++)); do
         for ((j = i + 1; j < ${#sorted[@]}; j++)); do
             if [[ ${#sorted[j]} -lt ${#sorted[i]} ]]; then
@@ -129,21 +137,14 @@ dedupe_paths() {
         done
     done
 
-    local -a result=()
-    local -A parent_seen=()
     for p in "${sorted[@]}"; do
-        # Check if any parent path already in result
-        parent="$p"
-        local is_child=0
-        while [[ "$parent" != "/" && "$parent" != "." ]]; do
-            parent="${parent%/*}"
-            [[ -n "${parent_seen[$parent]:-}" ]] && { is_child=1; break; }
+        is_child=0
+        for other in "${result[@]}"; do
+            [[ "$p" == "$other"/* ]] && { is_child=1; break; }
         done
-        if [[ $is_child -eq 0 ]]; then
-            parent_seen["$p"]=1
-            result+=("$p")
-        fi
+        [[ $is_child -eq 0 ]] && result+=("$p")
     done
+
     printf '%s\n' "${result[@]}"
 }
 
