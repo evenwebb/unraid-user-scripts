@@ -198,9 +198,11 @@ _sonarr_http_get() {
 }
 
 _sonarr_fetch_all_series() {
-    local page=1 page_size=250 chunk combined='[]' count first_id prev_first_id="" max_pages=200
+    local page=1 page_size=250 chunk combined_file count first_id prev_first_id="" max_pages=200
+    combined_file=$(mktemp) || return 1
+    printf '[]' > "$combined_file"
     while [[ "$page" -le "$max_pages" ]]; do
-        chunk=$(_sonarr_http_get "/api/v3/series?page=${page}&pageSize=${page_size}&sortKey=sortTitle&sortDirection=asc" "loading series list (page ${page})") || return 1
+        chunk=$(_sonarr_http_get "/api/v3/series?page=${page}&pageSize=${page_size}&sortKey=sortTitle&sortDirection=asc" "loading series list (page ${page})") || { rm -f "$combined_file"; return 1; }
         count=$(printf '%s' "$chunk" | jq 'length')
         [[ "$count" -eq 0 ]] && break
         first_id=$(printf '%s' "$chunk" | jq -r '.[0].id // empty')
@@ -208,15 +210,21 @@ _sonarr_fetch_all_series() {
             break
         fi
         prev_first_id="$first_id"
-        combined=$(jq -s 'add' <<< "$combined" "$chunk")
+        if ! jq -s 'add' "$combined_file" - <<< "$chunk" > "${combined_file}.new"; then
+            rm -f "$combined_file" "${combined_file}.new"
+            return 1
+        fi
+        mv "${combined_file}.new" "$combined_file"
         [[ "$count" -lt "$page_size" ]] && break
         page=$((page + 1))
     done
     if [[ "$page" -gt "$max_pages" ]]; then
         log_err "Series list pagination exceeded ${max_pages} pages."
+        rm -f "$combined_file"
         return 1
     fi
-    printf '%s' "$combined"
+    cat "$combined_file"
+    rm -f "$combined_file"
 }
 
 _verify_sonarr_connection() {

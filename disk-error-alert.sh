@@ -165,13 +165,17 @@ get_smart_health() {
         return 0
     fi
 
-    local health raw realloc pending udma
-    # Overall health status
-    health=$("$smartctl" -H "$dev_path" 2>/dev/null | grep -i 'SMART.*Health\|SMART.*PASSED\|SMART.*OK' | head -n1 | sed 's/^[[:space:]]*//' || echo "")
+    local health raw realloc pending udma smartctl_extra
+    # Overall health status (NVMe needs -d nvme)
+    smartctl_extra=""
+    [[ "$dev_path" =~ ^/dev/nvme ]] && smartctl_extra="-d nvme"
+    # shellcheck disable=SC2086
+    health=$("$smartctl" $smartctl_extra -H "$dev_path" 2>/dev/null | grep -iE 'SMART.*Health|SMART.*PASSED|SMART.*OK|overall-health.*PASSED' | head -n1 | sed 's/^[[:space:]]*//' || echo "")
     [[ -z "$health" ]] && health="SMART status unknown"
 
     # Key attributes: Reallocated_Sector_Ct (5), Current_Pending_Sector (197), UDMA_CRC_Error_Count (199)
-    raw=$("$smartctl" -A "$dev_path" 2>/dev/null)
+    # shellcheck disable=SC2086
+    raw=$("$smartctl" $smartctl_extra -A "$dev_path" 2>/dev/null)
     realloc=$(echo "$raw" | grep -E '^\s*(5|005)\s' | awk '{print $NF}' || echo "N/A")
     pending=$(echo "$raw" | grep -E '^\s*(197)\s' | awk '{print $NF}' || echo "N/A")
     udma=$(echo "$raw" | grep -E '^\s*(199)\s' | awk '{print $NF}' || echo "N/A")

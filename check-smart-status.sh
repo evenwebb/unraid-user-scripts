@@ -72,7 +72,7 @@ is_safe_path() {
 }
 
 # Map smartctl --scan paths to a block device smartctl -H can use (e.g. /dev/nvme0 -> /dev/nvme0n1).
-# Prints the resolved path on stdout; logs and returns 1 when the device cannot be checked.
+# Prints the resolved path on stdout only (no logging - safe for command substitution).
 resolve_smart_disk() {
     local disk="$1"
     local ns
@@ -86,23 +86,34 @@ resolve_smart_disk() {
         shopt -s nullglob
         for ns in /dev/nvme"${BASH_REMATCH[1]}"n*; do
             if [[ -b "$ns" ]]; then
-                log "  $disk is an NVMe controller; checking namespace $ns instead"
-                printf '%s' "$ns"
                 shopt -u nullglob
+                printf '%s' "$ns"
                 return 0
             fi
         done
         shopt -u nullglob
-        log "Skipping $disk (NVMe controller only - no namespace such as /dev/nvme${BASH_REMATCH[1]}n1 found for SMART)"
         return 1
     fi
 
-    if [[ -e "$disk" ]]; then
-        log "Skipping $disk (not a block device - SMART needs a disk path like /dev/sdX or /dev/nvme0n1)"
-    else
-        log "Skipping $disk (device not found - check the path or add it to DISKS in this script)"
-    fi
     return 1
+}
+
+smartctl_health_args() {
+    local disk="$1"
+    if [[ "$disk" =~ ^/dev/nvme ]]; then
+        printf '%s' "-d nvme"
+    fi
+}
+
+smart_health_status() {
+    local output="$1"
+    if echo "$output" | grep -qiE 'SMART Health Status:[[:space:]]*OK|SMART overall-health.*PASSED|SMART.*PASSED'; then
+        echo "passed"
+    elif echo "$output" | grep -qiE 'SMART Health Status:[[:space:]]*FAILED|SMART overall-health.*FAILED|SMART.*FAILED'; then
+        echo "failed"
+    else
+        echo "unknown"
+    fi
 }
 
 main() {
@@ -143,13 +154,24 @@ main() {
     log "Checking SMART status of ${#disks_to_check[@]} disk(s)..."
 
     local failed_disks=()
+    local unknown_disks=()
     local checked=0
     declare -A checked_disks=()
 
     for disk in "${disks_to_check[@]}"; do
         [[ -z "$disk" ]] && continue
-        local smart_disk
-        smart_disk=$(resolve_smart_disk "$disk") || continue
+        local raw_disk="$disk" smart_disk smartctl_extra health status
+        smart_disk=$(resolve_smart_disk "$disk") || {
+            if [[ -e "$disk" ]]; then
+                log "Skipping $disk (not a block device - use /dev/sdX or /dev/nvme0n1)"
+            else
+                log "Skipping $disk (device not found - check the path or add it to DISKS in this script)"
+            fi
+            continue
+        }
+        if [[ "$smart_disk" != "$raw_disk" ]]; then
+            log "  $raw_disk is an NVMe controller; checking namespace $smart_disk instead"
+        fi
         if [[ -n "${checked_disks[$smart_disk]:-}" ]]; then
             continue
         fi
@@ -158,27 +180,42 @@ main() {
 
         local err_file output err_text
         err_file=$(mktemp) || { log_err "Could not create temp file."; continue; }
-        output=$(smartctl -H "$disk" 2>"$err_file") || output=""
+        smartctl_extra=$(smartctl_health_args "$disk")
+        # shellcheck disable=SC2086
+        output=$(smartctl $smartctl_extra -H "$disk" 2>"$err_file") || output=""
         err_text=$(tr '\n' ' ' <"$err_file" | sed 's/  */ /g')
         rm -f "$err_file"
         ((checked++)) || true
 
         if [[ -z "$output" && -n "$err_text" ]]; then
             log_err "  $disk: smartctl failed - ${err_text} (try running this script as root if permission was denied)"
+            unknown_disks+=("$disk")
             continue
         fi
 
-        if echo "$output" | grep -qi "SMART.*PASSED"; then
-            log "  $disk: PASSED"
-        elif echo "$output" | grep -qi "SMART.*FAILED"; then
-            log "  $disk: FAILED"
-            failed_disks+=("$disk")
-        else
-            log "  $disk: Unknown (no SMART data or unsupported device)"
-        fi
+        status=$(smart_health_status "$output")
+        case "$status" in
+            passed)
+                log "  $disk: PASSED"
+                ;;
+            failed)
+                log "  $disk: FAILED"
+                failed_disks+=("$disk")
+                ;;
+            *)
+                log "  $disk: Unknown (no SMART data or unsupported device)"
+                unknown_disks+=("$disk")
+                ;;
+        esac
     done
 
     log "Checked $checked disk(s)."
+
+    if [[ ${#unknown_disks[@]} -gt 0 ]]; then
+        local unknown_list
+        unknown_list=$(IFS=,; echo "${unknown_disks[*]}")
+        log_err "SMART status unreadable on: $unknown_list"
+    fi
 
     if [[ ${#failed_disks[@]} -gt 0 ]]; then
         local failed_list
@@ -192,6 +229,10 @@ main() {
         else
             log_err "NOTIFY_SCRIPT is not executable - alert was not sent. Check NOTIFY_SCRIPT in this script."
         fi
+        return 1
+    fi
+
+    if [[ ${#unknown_disks[@]} -gt 0 ]]; then
         return 1
     fi
 
