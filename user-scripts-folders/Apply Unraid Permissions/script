@@ -107,13 +107,13 @@ is_dangerous_path() {
     return 1
 }
 
-# Reject paths that are too shallow (e.g. /mnt/user alone) - same minimum depth as is_safe_delete_path.
+# Reject invalid or top-level mount paths (/ and /mnt). Share roots such as /mnt/user are allowed.
 is_safe_perm_path() {
     local p="$1"
+    p="${p%/}"
     [[ -z "$p" ]] && return 1
     [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
     [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
-    [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
     return 0
 }
 
@@ -183,7 +183,7 @@ main() {
         fi
 
         if ! is_safe_perm_path "$path"; then
-            log_err "Skipping $path (path is too shallow - use a subdirectory, e.g. /mnt/user/downloads/...)"
+            log_err "Skipping $path (invalid path - use a directory under /mnt, not / or /mnt itself)"
             any_failed=1
             continue
         fi
