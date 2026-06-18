@@ -1074,7 +1074,9 @@ main() {
     mkdir -p "$DEST_DIR" "$BACKUP_DIR" 2>/dev/null || true
   fi
 
-  log "Syncing $(( ${#src_folder_list[@]} - (UPDATER_FOLDER_NAME:+1) )) other script folders → $DEST_DIR (dry-run: $DRY_RUN)"
+  local sync_folder_count=${#src_folder_list[@]}
+  [[ -n "$UPDATER_FOLDER_NAME" ]] && sync_folder_count=$((sync_folder_count - 1))
+  log "Syncing ${sync_folder_count} other script folders → $DEST_DIR (dry-run: $DRY_RUN)"
 
   for src_folder in "${src_folder_list[@]}"; do
     folder_name="$(basename "$src_folder")"
