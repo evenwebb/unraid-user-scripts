@@ -28,7 +28,7 @@ Each script is a single self-contained file. Copy the ready-made plugin folders 
 
 ## 🔄 User Scripts Updater
 
-> [`user-scripts-updater.sh`](user-scripts-updater.sh) pulls GitHub updates **without overwriting your config**.
+> [`user-scripts-updater.sh`](user-scripts-updater.sh) pulls GitHub updates **without overwriting your config**. On a live run (`DRY_RUN=0`), it updates itself first if needed, re-launches with the new version, then syncs all other scripts.
 
 First run: `DRY_RUN=1` → review → `DRY_RUN=0` and schedule.
 

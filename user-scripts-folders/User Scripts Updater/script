@@ -5,6 +5,8 @@
 #
 # Description:
 #   Downloads this repo (or uses a local copy), updates installed script folders, and merges EDIT FOR YOUR SETUP blocks.
+#   On each live run, checks whether this updater script is current; if not, updates itself and re-runs
+#   with the new version before syncing other scripts (so new merge/sync logic is always used).
 #
 # Usage:
 #   Run from User Scripts (foreground first, then schedule).
@@ -757,6 +759,72 @@ list_to_csv() {
   printf '%s' "$_out"
 }
 
+# Return path to the User Scripts Updater folder under a user-scripts-folders root.
+find_updater_src_folder() {
+  local src_root="$1"
+  local d script
+  for d in "$src_root"/*; do
+    [[ -d "$d" ]] || continue
+    script="$d/script"
+    if [[ -f "$script" ]] && script_is_user_scripts_updater "$script"; then
+      printf '%s' "$d"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Update this script on flash first when upstream changed, then exec the new copy so the
+# rest of the run uses current updater code. Skipped when USER_SCRIPTS_UPDATER_REEXEC=1
+# (set on the child run after self-update) or when the updater is not installed yet.
+self_update_and_maybe_reexec() {
+  local src_folders="$1"
+  local src_folder dest_folder dest_script folder_name rc
+
+  if [[ "${USER_SCRIPTS_UPDATER_REEXEC:-0}" == "1" ]]; then
+    log "Self-update already applied this run; syncing remaining scripts."
+    return 0
+  fi
+
+  src_folder="$(find_updater_src_folder "$src_folders")" || {
+    log_err "User Scripts Updater folder not found in upstream source."
+    return 1
+  }
+  folder_name="$(basename "$src_folder")"
+  UPDATER_FOLDER_NAME="$folder_name"
+  dest_folder="$DEST_DIR/$folder_name"
+  dest_script="$dest_folder/script"
+
+  if [[ ! -f "$dest_script" ]]; then
+    log "User Scripts Updater not installed on flash yet; self-update skipped (install it first or set INSTALL_MISSING=1)."
+    return 0
+  fi
+
+  log "Checking whether User Scripts Updater is up to date..."
+  sync_one_folder "$src_folder" "$dest_folder"
+  rc=$?
+
+  case "$rc" in
+    2)
+      log "User Scripts Updater is up to date."
+      return 0
+      ;;
+    0)
+      if [[ "$DRY_RUN" == "1" ]]; then
+        log "DRY_RUN: a live run would update User Scripts Updater first, re-launch it, then sync other scripts."
+        return 0
+      fi
+      log "User Scripts Updater updated; re-launching with new version before syncing other scripts..."
+      export USER_SCRIPTS_UPDATER_REEXEC=1
+      exec bash "$dest_script"
+      ;;
+    *)
+      log_err "Self-update failed for User Scripts Updater."
+      return 1
+      ;;
+  esac
+}
+
 sync_one_folder() {
   local src_folder="$1"
   local dest_folder="$2"
@@ -966,6 +1034,9 @@ main() {
     return 1
   fi
 
+  UPDATER_FOLDER_NAME=""
+  self_update_and_maybe_reexec "$src_folders" || return 1
+
   local src_folder folder_name dest_folder
   local updated=0 skipped=0 fail=0 unchanged=0
   local -a src_folder_list=()
@@ -982,6 +1053,9 @@ main() {
 
   for src_folder in "${src_folder_list[@]}"; do
     folder_name="$(basename "$src_folder")"
+    if [[ -n "$UPDATER_FOLDER_NAME" && "$folder_name" == "$UPDATER_FOLDER_NAME" ]]; then
+      continue
+    fi
     dest_folder="$DEST_DIR/$folder_name"
 
       # Selective update filtering
