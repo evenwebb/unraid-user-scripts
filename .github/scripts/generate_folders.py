@@ -52,7 +52,7 @@ SCRIPT_DESCRIPTIONS = {
     'clean-docker-log-size.sh': 'Truncate oversized Docker logs to free space in docker.img.',
     'clean-download-junk.sh': 'Delete leftover download files (nfo, par2, samples) and empty folders.',
     'clear-movies-download-folder.sh': 'Clear the movies download folder, with an optional age filter.',
-    'clear-plex-codecs.sh': 'Clear Plex codec cache to free space; Plex rebuilds codecs as needed.',
+    'clear-plex-codecs.sh': 'Clear Plex codec cache to free space; optional Docker restart after clearing.',
     'clear-torrent-download-folder.sh': 'Clear the torrent download folder, with an optional age filter.',
     'clear-tv-shows-download-folder.sh': 'Clear the TV download folder, with an optional age filter.',
     'delete-dangling-images.sh': 'Remove untagged Docker images to free space in docker.img.',

@@ -110,7 +110,6 @@ log() {
 log_err() {
   local msg="[$(timestamp)] ERROR: $*"
   echo "$msg"
-  echo "$msg" >&2
 }
 
 log_stderr() {

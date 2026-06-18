@@ -45,8 +45,8 @@ SONARR_API_KEY=""       # Settings → General → API Key
 
 # --- NZBGet ---
 NZBGET_URL=""           # e.g. http://192.168.1.10:6789 (no trailing slash)
-NZBGET_USER="nzbget"    # ControlUsername
-NZBGET_PASS=""         # ControlPassword
+NZBGET_USER="nzbget"    # Settings → Security → Control username
+NZBGET_PASS=""          # Settings → Security → Control password
 
 # --- Behaviour ---
 DRY_RUN="1"                # 1 = log only, no removals or searches (default)
@@ -76,7 +76,6 @@ log() {
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
@@ -132,11 +131,11 @@ _friendly_curl_err() {
 }
 
 radarr_queue_fields() {
-    jq -r '[.protocol // "", .downloadId // "", .movieId // "", .title // "?", .id] | @tsv'
+    jq -r '[.protocol // "", (.downloadId // "" | tostring), (.movieId // "" | tostring), ((.movie.title // .sourceTitle // .title // .downloadId // "?") | tostring), (.id // "" | tostring)] | @tsv'
 }
 
 sonarr_queue_fields() {
-    jq -r '[.protocol // "", .downloadId // "", .title // "?", .id, (([
+    jq -r '[.protocol // "", (.downloadId // "" | tostring), ((if (.sourceTitle // "" | length) > 0 then .sourceTitle elif (.title | tostring | test("^[0-9]+$")) then ((.series.title // "?") + " (" + (.downloadId // "?") + ")") elif (.series.title // "" | length) > 0 then (.series.title + " - " + (.title | tostring)) else (.title // .downloadId // "?") end) | tostring), (.id // "" | tostring), (([
       .episodeId,
       .episode.id,
       .episode.episodeId,
@@ -240,7 +239,13 @@ _log_service_failure() {
     case "$code" in
         401) log_err "Wrong username, password, or API key for ${service} while ${task}. ${fix_hint}" ;;
         403) log_err "${service} refused access while ${task}. ${fix_hint}" ;;
-        404) log_err "Could not find ${service} at ${url} while ${task}. Check the URL in this script — it should look like http://your-server:port with no extra path." ;;
+        404)
+            if [[ "$task" == removing\ queue\ item* ]]; then
+                log_err "${service}: queue item not found while ${task} (it may already have been removed)."
+            else
+                log_err "Could not find ${service} at ${url} while ${task}. Check the URL in this script — it should look like http://your-server:port with no extra path."
+            fi
+            ;;
         000|"") log_err "Could not connect to ${service} at ${url} while ${task}. Check the URL, that the app is running, and that the port is correct." ;;
         *)
             if [[ -n "$body" ]] && ! jq -e . <<< "$body" &>/dev/null; then
@@ -503,8 +508,12 @@ process_radarr() {
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((radarr_stale_count++)) || true
+    [[ -n "$mid" ]] && movie_ids="$movie_ids $mid"
+    if [[ -z "$qid" ]]; then
+      log_fmt "Radarr: stale '%s' (downloadId=%s, no queueId) -> skipped (cannot remove without queue id)" "${title}" "${did}"
+      continue
+    fi
     to_remove="$to_remove $qid"
-    if [[ -n "$mid" ]]; then movie_ids="$movie_ids $mid"; fi
     if [[ "$DRY_RUN" == "1" ]]; then
       local bl_msg=""; [[ "$BLOCKLIST_ENABLED" == "1" ]] && bl_msg=" and blocklist"
       log_fmt "Radarr: [DRY-RUN] would remove%s '%s' (queueId=%s), would search movie %s" "${bl_msg}" "${title}" "${qid}" "${mid}"
@@ -517,7 +526,7 @@ process_radarr() {
   local unique_movies
   unique_movies=$(echo "$movie_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
   if [[ -n "$unique_movies" ]]; then
-    radarr_unique_movies_search=$(echo "$unique_movies" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+    radarr_unique_movies_search=$(echo "$unique_movies" | tr ',' '\n' | grep -c . 2>/dev/null || true)
   fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -577,6 +586,14 @@ process_sonarr() {
     [[ "$proto" != "usenet" || -z "$did" ]] && continue
     [[ -n "${nzbget_set[$did]:-}" ]] && continue
     ((sonarr_stale_count++)) || true
+    if [[ -z "$qid" ]]; then
+      log_fmt "Sonarr: stale '%s' (downloadId=%s, no queueId) -> skipped (cannot remove without queue id)" "${title}" "${did}"
+      if [[ -n "$episode_ids_csv" ]]; then
+        episode_ids+=" ${episode_ids_csv//,/ }"
+      fi
+      [[ -n "$sid" && "$sid" != "null" ]] && series_ids="$series_ids $sid"
+      continue
+    fi
     to_remove="$to_remove $qid"
     if [[ -n "$episode_ids_csv" ]]; then
       episode_ids+=" ${episode_ids_csv//,/ }"
@@ -595,10 +612,10 @@ process_sonarr() {
   unique_episodes=$(echo "$episode_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
   unique_series=$(echo "$series_ids" | tr ' ' '\n' | sort -nu | tr '\n' ',' | sed 's/,$//')
   if [[ -n "$unique_episodes" ]]; then
-    sonarr_unique_episodes_search=$(echo "$unique_episodes" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+    sonarr_unique_episodes_search=$(echo "$unique_episodes" | tr ',' '\n' | grep -c . 2>/dev/null || true)
   fi
   if [[ -n "$unique_series" ]]; then
-    sonarr_unique_series_search=$(echo "$unique_series" | tr ',' '\n' | grep -c . 2>/dev/null || echo 0)
+    sonarr_unique_series_search=$(echo "$unique_series" | tr ',' '\n' | grep -c . 2>/dev/null || true)
   fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -649,7 +666,7 @@ process_sonarr() {
 
 # --- Main ---
 exit_code=0
-log "Queue sync start (NZBGet queue has $(printf '%s' "$nzbget_ids" | grep -c . 2>/dev/null || echo 0) item(s))"
+log "Queue sync start (NZBGet queue has ${#nzbget_set[@]} item(s))"
 [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no removals or searches will be performed"
 clear_nzbget_failed || exit_code=1
 process_radarr || exit_code=1

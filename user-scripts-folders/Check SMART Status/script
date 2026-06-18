@@ -39,6 +39,8 @@ NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
+###############################################################################
+
 # Validate LOG_FILE path (reject path traversal, option-like paths, newlines)
 if [[ -n "$LOG_FILE" ]]; then
     if [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* || "$LOG_FILE" == *$'\n'* ]]; then
@@ -59,7 +61,6 @@ log() {
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && echo "$msg" >> "$LOG_FILE"
 }
 
@@ -68,6 +69,40 @@ is_safe_path() {
     [[ -z "$p" ]] && return 1
     [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
     return 0
+}
+
+# Map smartctl --scan paths to a block device smartctl -H can use (e.g. /dev/nvme0 -> /dev/nvme0n1).
+# Prints the resolved path on stdout; logs and returns 1 when the device cannot be checked.
+resolve_smart_disk() {
+    local disk="$1"
+    local ns
+
+    if [[ -b "$disk" ]]; then
+        printf '%s' "$disk"
+        return 0
+    fi
+
+    if [[ "$disk" =~ ^/dev/nvme([0-9]+)$ ]]; then
+        shopt -s nullglob
+        for ns in /dev/nvme"${BASH_REMATCH[1]}"n*; do
+            if [[ -b "$ns" ]]; then
+                log "  $disk is an NVMe controller; checking namespace $ns instead"
+                printf '%s' "$ns"
+                shopt -u nullglob
+                return 0
+            fi
+        done
+        shopt -u nullglob
+        log "Skipping $disk (NVMe controller only — no namespace such as /dev/nvme${BASH_REMATCH[1]}n1 found for SMART)"
+        return 1
+    fi
+
+    if [[ -e "$disk" ]]; then
+        log "Skipping $disk (not a block device — SMART needs a disk path like /dev/sdX or /dev/nvme0n1)"
+    else
+        log "Skipping $disk (device not found — check the path or add it to DISKS in this script)"
+    fi
+    return 1
 }
 
 main() {
@@ -105,13 +140,17 @@ main() {
 
     local failed_disks=()
     local checked=0
+    declare -A checked_disks=()
 
     for disk in "${disks_to_check[@]}"; do
         [[ -z "$disk" ]] && continue
-        if [[ ! -b "$disk" ]]; then
-            log "Skipping $disk (not a block device)"
+        local smart_disk
+        smart_disk=$(resolve_smart_disk "$disk") || continue
+        if [[ -n "${checked_disks[$smart_disk]:-}" ]]; then
             continue
         fi
+        checked_disks[$smart_disk]=1
+        disk="$smart_disk"
 
         local err_file output err_text
         err_file=$(mktemp) || { log_err "Could not create temp file."; continue; }

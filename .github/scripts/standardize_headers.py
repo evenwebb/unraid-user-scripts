@@ -171,7 +171,7 @@ HEADERS: dict[str, str] = {
         "Delete Plex codec cache (Plex re-downloads as needed).",
         ["Frees space under PLEX_CODECS_PATH. Plex may briefly re-transcode after clearing."],
         ["./clear-plex-codecs.sh", "Edit variables in EDIT FOR YOUR SETUP below."],
-        ["PLEX_PATH: Plex appdata root (used when PLEX_CODECS_PATH is empty)", "PLEX_CODECS_PATH: codec cache directory (empty = under PLEX_PATH)"],
+        ["PLEX_PATH: Plex appdata root (used when PLEX_CODECS_PATH is empty)", "PLEX_CODECS_PATH: codec cache directory (empty = under PLEX_PATH)", "PLEX_CONTAINER_NAME / RESTART_PLEX_CONTAINER / RESTART_ONLY_IF_AUTOSTART"],
     ),
     "delete-dangling-images.sh": hdr(
         "delete-dangling-images.sh",

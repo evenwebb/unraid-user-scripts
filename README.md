@@ -83,7 +83,7 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | Script | Description |
 |:-------|:------------|
 | **check-plex-status.sh** | Restart Plex when the web UI stops responding |
-| **clear-plex-codecs.sh** | Clear Plex codec cache to free space |
+| **clear-plex-codecs.sh** | Clear Plex codec cache; optional container restart |
 | **clean-docker-log-size.sh** | Truncate oversized Docker logs |
 | **delete-dangling-images.sh** | Remove untagged Docker images |
 | **docker-image-usage-alert.sh** | Warn at 70% docker.img; alert at 85% |
@@ -117,7 +117,7 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 |:-----------|:--------|
 | curl + jq | `queue-sync-nzbget.sh`, `language-guard-*.sh`, `update-*-profiles.sh` |
 | python3 | `language-guard-*.sh` |
-| Docker CLI | `check-plex-status.sh`, `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh` |
+| Docker CLI | `check-plex-status.sh`, `clear-plex-codecs.sh` (if restart enabled), `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh` |
 | Bash 4.3+ | `user-scripts-updater.sh` |
 | root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh` |
 | smartctl | `check-smart-status.sh`; optional in `disk-error-alert.sh` |

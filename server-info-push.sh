@@ -64,7 +64,11 @@ log() {
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
+}
+
+# Drop blank lines; prefix each line for notify / User Scripts output.
+_format_notify_lines() {
+    sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*/  /'
 }
 
 # Validate path for safety (reject .., - prefix, newlines — same idea as disk-error-alert / dynamix paths)
@@ -192,11 +196,11 @@ main() {
     local cachespacefree=$(df -h "$CACHE_MOUNT" 2>/dev/null | awk 'NR==2 {print $4}' || echo "N/A")
     local appdataspacefree=$(df -h "$APPDATA_MOUNT" 2>/dev/null | awk 'NR==2 {print $4}' || echo "N/A")
 
-    # Temperatures
+    # Temperatures (one sensor reading per line — easier to read than comma-joined)
     local temp="N/A"
     if command -v sensors >/dev/null 2>&1; then
-        temp=$(timeout 5 sensors 2>/dev/null | grep -E '°[CF]' | head -n 3 | sed 's/^[[:space:]]*//' | paste -sd ', ' - || echo "N/A")
-        [[ -z "$temp" ]] && temp="N/A"
+        temp=$(timeout 5 sensors 2>/dev/null | grep -E '°[CF]' | head -n 3 | _format_notify_lines | paste -sd '\n' - || true)
+        [[ -z "$temp" ]] && temp="  N/A"
     fi
 
     # RAM
@@ -217,7 +221,7 @@ main() {
     # VMs (virsh/libvirt) — only when section is enabled
     local vmslist="none"
     if [[ "$SHOW_VMS" == "1" ]] && command -v virsh >/dev/null 2>&1; then
-        vmslist=$(virsh list --state-running --name 2>/dev/null | paste -sd ', ' - || echo "none")
+        vmslist=$(virsh list --state-running --name 2>/dev/null | sed '/^[[:space:]]*$/d' | paste -sd ', ' - || true)
         [[ -z "$vmslist" ]] && vmslist="none"
     fi
 
@@ -226,8 +230,8 @@ main() {
     local docker_running=0
     if [[ "$SHOW_CONTAINERS" == "1" ]] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         docker_running=1
-        docsrunning=$(docker ps --format '{{.Names}}' 2>/dev/null | paste -sd ', ' - || echo "none")
-        [[ -z "$docsrunning" ]] && docsrunning="none"
+        docsrunning=$(docker ps --format '{{.Names}}' 2>/dev/null | _format_notify_lines | paste -sd '\n' - || true)
+        [[ -z "$docsrunning" ]] && docsrunning="  none"
     fi
 
     # UPS
@@ -252,7 +256,7 @@ main() {
         msg="$msg
 
 🌡️  Temperatures
-  $temp"
+$temp"
     fi
 
     if [[ "$SHOW_MEMORY" == "1" ]]; then
@@ -287,7 +291,7 @@ $ups_line"
         msg="$msg
 
 🐳  Containers
-  $docsrunning"
+$docsrunning"
     fi
 
     pushnotice "$msg"

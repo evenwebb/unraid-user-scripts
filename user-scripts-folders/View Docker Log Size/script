@@ -57,7 +57,6 @@ log() {
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
 }
 
 # Map container ID to container name via docker inspect

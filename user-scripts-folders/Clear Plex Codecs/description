@@ -1,1 +1,1 @@
-Clear Plex codec cache to free space; Plex rebuilds codecs as needed.
+Clear Plex codec cache to free space; optional Docker restart after clearing.

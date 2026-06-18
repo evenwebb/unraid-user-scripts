@@ -97,7 +97,6 @@ log() {
 log_err() {
     local msg="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
     [[ -n "$LOG_FILE" ]] && printf '%s\n' "$msg" >> "$LOG_FILE"
 }
 

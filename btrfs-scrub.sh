@@ -54,7 +54,6 @@ log() {
 log_err() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*"
     echo "$msg"
-    echo "$msg" >&2
 }
 
 # Validate LOG_FILE after log functions are defined so we can use log_err
