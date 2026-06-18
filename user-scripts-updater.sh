@@ -564,9 +564,9 @@ log_config_merge_diff() {
     fi
     dest_val="${dest_map[$key]:-}"
     if [[ -z "$dest_val" ]]; then
-      log "Config diff ($folder_label): + $key (new upstream variable)"
+      log "Config merge ($folder_label): + $key (new upstream variable)"
     elif [[ "$dest_val" != "$src_val" && "$dest_val" != "${src_val%$'\n'}" ]]; then
-      log "Config diff ($folder_label): ~ $key (local differs from upstream)"
+      log "Config merge ($folder_label): keeping local $key (upstream default differs)"
     fi
   done <<<"$src_block"
 }
@@ -774,15 +774,18 @@ find_updater_src_folder() {
   return 1
 }
 
-# Update this script on flash first when upstream changed, then exec the new copy so the
-# rest of the run uses current updater code. Skipped when USER_SCRIPTS_UPDATER_REEXEC=1
-# (set on the child run after self-update) or when the updater is not installed yet.
+# True when script code outside the EDIT block differs between dest and src.
+upstream_code_differs() {
+  local dest_script="$1" src_script="$2"
+  ! upstream_heads_and_tails_match "$dest_script" "$src_script"
+}
+
 self_update_and_maybe_reexec() {
   local src_folders="$1"
-  local src_folder dest_folder dest_script folder_name rc
+  local src_folder dest_folder dest_script src_script folder_name running_script rc
 
   if [[ "${USER_SCRIPTS_UPDATER_REEXEC:-0}" == "1" ]]; then
-    log "Self-update already applied this run; syncing remaining scripts."
+    log "Continuing with updated User Scripts Updater; syncing remaining scripts."
     return 0
   fi
 
@@ -794,35 +797,56 @@ self_update_and_maybe_reexec() {
   UPDATER_FOLDER_NAME="$folder_name"
   dest_folder="$DEST_DIR/$folder_name"
   dest_script="$dest_folder/script"
+  src_script="$src_folder/script"
 
   if [[ ! -f "$dest_script" ]]; then
     log "User Scripts Updater not installed on flash yet; self-update skipped (install it first or set INSTALL_MISSING=1)."
     return 0
   fi
 
-  log "Checking whether User Scripts Updater is up to date..."
-  sync_one_folder "$src_folder" "$dest_folder"
-  rc=$?
+  running_script="${BASH_SOURCE[0]:-$0}"
 
-  case "$rc" in
-    2)
-      log "User Scripts Updater is up to date."
+  log "Checking User Scripts Updater code on flash (your EDIT settings are always preserved)..."
+
+  if upstream_code_differs "$dest_script" "$src_script"; then
+    log "User Scripts Updater code on flash is outdated; updating before syncing other scripts..."
+    sync_one_folder "$src_folder" "$dest_folder"
+    rc=$?
+    case "$rc" in
+      0)
+        if [[ "$DRY_RUN" == "1" ]]; then
+          log "DRY_RUN: would re-launch updater from flash, then sync other scripts."
+          return 0
+        fi
+        log "Re-launching from flash with updated User Scripts Updater..."
+        export USER_SCRIPTS_UPDATER_REEXEC=1
+        exec bash "$dest_script"
+        ;;
+      2)
+        log_err "Updater code looked outdated but nothing changed during sync."
+        return 1
+        ;;
+      *)
+        log_err "Self-update failed for User Scripts Updater."
+        return 1
+        ;;
+    esac
+  fi
+
+  log "User Scripts Updater code on flash is up to date."
+
+  if script_is_user_scripts_updater "$running_script" &&
+     upstream_code_differs "$running_script" "$dest_script"; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "DRY_RUN: would re-launch from flash (plugin temp copy is outdated)."
       return 0
-      ;;
-    0)
-      if [[ "$DRY_RUN" == "1" ]]; then
-        log "DRY_RUN: a live run would update User Scripts Updater first, re-launch it, then sync other scripts."
-        return 0
-      fi
-      log "User Scripts Updater updated; re-launching with new version before syncing other scripts..."
-      export USER_SCRIPTS_UPDATER_REEXEC=1
-      exec bash "$dest_script"
-      ;;
-    *)
-      log_err "Self-update failed for User Scripts Updater."
-      return 1
-      ;;
-  esac
+    fi
+    log "Re-launching from flash (User Scripts plugin temp copy is outdated)..."
+    export USER_SCRIPTS_UPDATER_REEXEC=1
+    exec bash "$dest_script"
+  fi
+
+  return 0
 }
 
 sync_one_folder() {
@@ -879,7 +903,6 @@ sync_one_folder() {
     if [[ "$RESET_CONFIG" == "1" ]]; then
       cp "$src_script" "$merged"
     else
-      log_config_merge_diff "$dest_script" "$src_script" "$folder_label"
       if files_equal "$dest_script" "$src_script"; then
         cp "$src_script" "$merged"
       else
@@ -928,6 +951,8 @@ sync_one_folder() {
     rm -f "$merged"
     return 2
   fi
+
+  log_config_merge_diff "$dest_script" "$src_script" "$folder_label"
 
   local reason_csv="${reasons[*]}"
   reason_csv="${reason_csv// /, }"
@@ -1049,7 +1074,7 @@ main() {
     mkdir -p "$DEST_DIR" "$BACKUP_DIR" 2>/dev/null || true
   fi
 
-  log "Syncing ${#src_folder_list[@]} folders → $DEST_DIR (dry-run: $DRY_RUN)"
+  log "Syncing $(( ${#src_folder_list[@]} - (UPDATER_FOLDER_NAME:+1) )) other script folders → $DEST_DIR (dry-run: $DRY_RUN)"
 
   for src_folder in "${src_folder_list[@]}"; do
     folder_name="$(basename "$src_folder")"

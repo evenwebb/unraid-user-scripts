@@ -49,6 +49,8 @@ STATE_FILE=""
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
 
+###############################################################################
+
 if [[ -n "$LOG_FILE" ]] && [[ "$LOG_FILE" == *".."* || "$LOG_FILE" == "-"* ]]; then
     _ui_msg="Error: LOG_FILE path invalid."
     echo "$_ui_msg"
@@ -76,8 +78,6 @@ if [[ -n "$NOTIFY_SCRIPT" ]] && [[ "$NOTIFY_SCRIPT" == *".."* || "$NOTIFY_SCRIPT
     echo "$_ui_msg" >&2
     exit 1
 fi
-
-###############################################################################
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
