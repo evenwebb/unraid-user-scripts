@@ -62,12 +62,7 @@ jobs:
           fi
 
           git diff --staged --stat
-          git commit -m "$(cat <<'EOF'
-Auto-sync User Scripts plugin folders
-
-Generated from root *.sh by .github/scripts/generate_folders.py
-EOF
-)"
+          git commit -m "Auto-sync User Scripts plugin folders"
           git push origin HEAD:main || {
             echo "Push failed; pulling and retrying..."
             git pull --rebase origin main
