@@ -7,6 +7,7 @@ Only regenerates folders for scripts that have changed.
 
 import shutil
 import re
+import sys
 import hashlib
 import argparse
 import os
