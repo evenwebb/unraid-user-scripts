@@ -11,7 +11,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat&logo=gnu&logoColor=white)](LICENSE)
 [![Shell: Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
-[![Scripts](https://img.shields.io/badge/Scripts-26-F26F21?style=flat&logo=linuxcontainers&logoColor=white)](https://github.com/evenwebb/unraid-user-scripts/tree/main)
+[![Scripts](https://img.shields.io/badge/Scripts-27-F26F21?style=flat&logo=linuxcontainers&logoColor=white)](https://github.com/evenwebb/unraid-user-scripts/tree/main)
 [![Unraid](https://img.shields.io/badge/Unraid-User%20Scripts-F26F21?style=flat&logo=unraid&logoColor=white)](https://unraid.net/community/apps)
 
 [Install](#-installation) · [Scripts](#-scripts) · [Updater](#-user-scripts-updater) · [Contributing](#-contributing)
@@ -91,6 +91,7 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | **clean-docker-log-size.sh** | Truncate oversized Docker logs |
 | **delete-dangling-images.sh** | Remove untagged Docker images |
 | **docker-image-usage-alert.sh** | Warn at 70% docker.img; alert at 85% |
+| **unraid-path-guard.sh** | Monitor unexpected shares, risky Docker paths, and watched folders |
 | **view-docker-log-size.sh** | Show largest container logs |
 
 ### Array · disks · parity
@@ -103,7 +104,7 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | **disk-error-alert.sh** | Notify on new disk or array syslog errors |
 | **flash-backup.sh** | Back up USB flash to the array with rotation |
 | **out-of-memory-errors.sh** | Notify when the OOM killer stops a process |
-| **parity-check-monitor.sh** | Notify during parity checks |
+| **parity-check-monitor.sh** | Track parity-check progress and report start, completion, interruption, and errors |
 | **record-disk-assignments.sh** | Save disk slot assignments to flash |
 
 ### Server · misc
@@ -113,6 +114,10 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | **server-info-push.sh** | Notification with space, temps, load, VMs, and containers |
 | **user-scripts-updater.sh** | Update all User Scripts from GitHub; keeps your settings |
 
+### Unraid Path Guard
+
+`unraid-path-guard.sh` only reports findings; it does not change shares, folders, files, or Docker. Before scheduling it, review the settings at the top of the script: defaults assume appdata is mounted at `/mnt/appdata`, Docker data is under `/mnt/appdata/docker`, and `/mnt/user/appdata` is unwanted. The first run records current folder baselines in `STATE_DIR`; `--accept-current` replaces those snapshots when run manually.
+
 ---
 
 ## 📦 Dependencies
@@ -120,12 +125,14 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | Dependency | Scripts |
 |:-----------|:--------|
 | curl + jq | `queue-sync-nzbget.sh`, `language-guard-*.sh`, `update-*-profiles.sh` |
-| python3 | `language-guard-*.sh` |
-| Docker CLI | `check-plex-status.sh`, `clear-plex-codecs.sh` (if restart enabled), `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh` |
-| Bash 4.3+ | `user-scripts-updater.sh` |
+| Python 3 | `language-guard-*.sh` (not included in Unraid OS by default; install a compatible Python 3 plugin such as Python 3 for UNRAID) |
+| Docker CLI | `check-plex-status.sh`, `clear-plex-codecs.sh` (if restart enabled), `clean-docker-log-size.sh`, `delete-dangling-images.sh`, `docker-image-usage-alert.sh`, `view-docker-log-size.sh`; optional container inspection in `unraid-path-guard.sh` |
+| PHP CLI with SimpleXML | Optional saved-template inspection in `unraid-path-guard.sh` |
+| mountpoint | `unraid-path-guard.sh` |
+| Bash 4.3+ | `user-scripts-updater.sh`, `unraid-path-guard.sh` |
 | unzip, curl, md5sum | `user-scripts-updater.sh` (zip mode) |
-| flock | `queue-sync-nzbget.sh`, `user-scripts-updater.sh`, `docker-image-usage-alert.sh`, `flash-backup.sh` (when `LOCK_FILE` set) |
-| root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh`, `btrfs-scrub.sh` |
+| flock | `queue-sync-nzbget.sh`, `user-scripts-updater.sh`, `docker-image-usage-alert.sh`, `flash-backup.sh` (when `LOCK_FILE` set), `parity-check-monitor.sh`; optional overlap protection in `unraid-path-guard.sh` |
+| root / sudo | `apply-unraid-perms.sh`, `check-smart-status.sh`, `btrfs-scrub.sh`, `unraid-path-guard.sh` |
 | smartctl | `check-smart-status.sh`; required when `disk-error-alert.sh` `ENABLE_SMART_CORRELATION=1` |
 
 ---
@@ -134,10 +141,10 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 
 1. Edit scripts in the repo root (`*.sh`), not only `user-scripts-folders/`.
 2. Run `python3 .github/scripts/generate_folders.py` and commit `user-scripts-folders/`.
-3. CI runs `bash -n` on every script and verifies folder sync.
-4. Test on Unraid with `DRY_RUN=1` before live runs.
+3. CI runs `bash -n`, verifies generated copies, and runs the Path Guard integration test.
+4. Test scripts on Unraid manually with safe settings before scheduling; Path Guard is monitor-only.
 
-**Tested on:** Unraid 6.12.x (primary). Unraid 7.x parity/scheduler fields may differ - report issues if notifications misfire.
+**Compatibility review:** Unraid 7.3.3 is the current stable release; 7.4.0-rc.1 is a test release. Scripts use Bash 4+ and standard Unraid utilities, with optional/plugin dependencies listed above. Python 3 is an external prerequisite for the language guards. The parity monitor reads `/var/local/emhttp/var.ini` fields rather than the newer API; this has not been validated against a live 7.x server. The repository has not been runtime-tested on Unraid 7.3.3 or 7.4.0-rc.1.
 
 ---
 

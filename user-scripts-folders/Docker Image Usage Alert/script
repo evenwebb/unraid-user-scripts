@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # docker-image-usage-alert.sh
+# Version: 1.0.1
 # Alert when docker.img usage crosses warning or critical thresholds.
 #
 # Description:
@@ -152,12 +153,15 @@ get_usage_human() {
 # List largest containers by writable layer size (single docker call; fallback to container dir du)
 list_largest_containers() {
     local count="$1"
-    if docker ps -s --format '{{.Size}}\t{{.Names}}' 2>/dev/null | grep -q .; then
-        docker ps -s --format '{{.Size}}\t{{.Names}}' 2>/dev/null | while IFS=$'\t' read -r size name; do
+    local docker_rows
+    if docker_rows=$(docker ps -s --format '{{.Size}}|{{.Names}}' 2>/dev/null); then
+        if [[ -n "$docker_rows" ]]; then
+            printf '%s\n' "$docker_rows" | while IFS='|' read -r size name; do
             [[ -z "$name" ]] && continue
             echo "${size%% *} ${name}"
-        done | sort -rh | head -n "$count"
-        return 0
+            done | sort -rh | head -n "$count"
+            return 0
+        fi
     fi
     local containers_dir="${DOCKER_PATH}/containers"
     [[ -d "$containers_dir" ]] || return 0

@@ -38,6 +38,9 @@ jobs:
       - name: Bash syntax check (bash -n)
         run: bash .github/scripts/bash-n-check.sh
 
+      - name: Path Guard integration test
+        run: python3 .github/scripts/test_path_guard.py
+
       - name: Generate User Scripts folders
         run: python3 .github/scripts/generate_folders.py
 

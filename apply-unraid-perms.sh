@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # apply-unraid-perms.sh
+# Version: 1.0.1
 # Apply Unraid-style permissions (nobody:users, Docker-safe) to configured paths.
 #
 # Description:
@@ -114,6 +115,7 @@ is_safe_perm_path() {
     [[ -z "$p" ]] && return 1
     [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
     [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
+    [[ "$p" == /mnt/* ]] || return 1
     return 0
 }
 
@@ -187,6 +189,14 @@ main() {
             any_failed=1
             continue
         fi
+        local resolved_path
+        resolved_path=$(readlink -f -- "$path" 2>/dev/null) || { log_err "Cannot resolve path: $path"; any_failed=1; continue; }
+        if is_dangerous_path "$resolved_path" || [[ "$resolved_path" != /mnt/* ]]; then
+            log_err "Skipping $path (resolves outside the allowed /mnt tree: $resolved_path)"
+            any_failed=1
+            continue
+        fi
+        path="$resolved_path"
 
         log "Applying permissions to: $path"
 
@@ -195,12 +205,18 @@ main() {
         local ep
         for ep in "${EXCLUDE_PATHS[@]}"; do
             [[ -z "$ep" ]] && continue
-            exclude_args+=(-not -path "$ep")
+            exclude_args+=(\( -path "$ep" -prune \) -o)
         done
+
+        if [[ ! "$PARALLEL_JOBS" =~ ^[0-9]+$ ]]; then
+            log_err "PARALLEL_JOBS must be a non-negative integer."
+            any_failed=1
+            continue
+        fi
 
         if [[ "$DRY_RUN" == "1" ]]; then
             local file_count
-            file_count=$(find "$path" -xdev -type f "${exclude_args[@]}" 2>/dev/null | wc -l | tr -d '[:space:]')
+            file_count=$(find "$path" -type f "${exclude_args[@]}" 2>/dev/null | wc -l | tr -d '[:space:]')
             [[ "$file_count" != *[0-9]* ]] && file_count=0
             log "[DRY-RUN] would apply: chmod ${CHMOD_FLAGS[*]} / chown $OWNER_GROUP on $path"
             log "[DRY-RUN] would touch approximately $file_count file(s) under $path"
@@ -209,31 +225,35 @@ main() {
             continue
         fi
 
-        if [[ "$PARALLEL_JOBS" -gt 0 ]] && [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]]; then
+        if [[ "$PARALLEL_JOBS" -gt 0 ]]; then
             # Parallel mode: use find + xargs -P for faster processing on large dirs
-            find "$path" -xdev -type d "${exclude_args[@]}" -print0 2>/dev/null | \
-                xargs -0 -P "$PARALLEL_JOBS" -n 50 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || true
-            find "$path" -xdev -type f "${exclude_args[@]}" -print0 2>/dev/null | \
-                xargs -0 -P "$PARALLEL_JOBS" -n 100 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || true
-            find "$path" -xdev "${exclude_args[@]}" -print0 2>/dev/null | \
-                xargs -0 -P "$PARALLEL_JOBS" -n 100 chown "$OWNER_GROUP" -- 2>/dev/null || true
-            log "Parallel permissions applied to $path"
-        else
-            # Sequential mode (original chmod -R behavior)
-            if [[ ${#exclude_args[@]} -gt 0 ]]; then
-                find "$path" -xdev "${exclude_args[@]}" -exec chmod "${CHMOD_FLAGS[@]}" {} + 2>/dev/null || true
-                find "$path" -xdev "${exclude_args[@]}" -exec chown "$OWNER_GROUP" -- {} + 2>/dev/null || true
+            local parallel_failed=0
+            find "$path" -type d "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -r -P "$PARALLEL_JOBS" -n 50 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || parallel_failed=1
+            find "$path" -type f "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -r -P "$PARALLEL_JOBS" -n 100 chmod "${CHMOD_FLAGS[@]}" 2>/dev/null || parallel_failed=1
+            find "$path" "${exclude_args[@]}" -print0 2>/dev/null | \
+                xargs -0 -r -P "$PARALLEL_JOBS" -n 100 chown "$OWNER_GROUP" -- 2>/dev/null || parallel_failed=1
+            if [[ "$parallel_failed" -eq 1 ]]; then
+                log_err "Parallel chmod/chown failed for $path (find/xargs failure); see permissions and storage availability."
+                any_failed=1
             else
-                if ! chmod -R -- "${CHMOD_FLAGS[@]}" "$path"; then
-                    log_err "chmod failed for $path"
-                    any_failed=1
-                    continue
-                fi
-                if ! chown -R "$OWNER_GROUP" "$path"; then
-                    log_err "chown failed for $path"
-                    any_failed=1
-                    continue
-                fi
+                log "Parallel permissions applied to $path"
+            fi
+        else
+            # Walk mounted sub-filesystems too: /mnt/user often contains
+            # separately mounted array shares and pools on Unraid.
+            local sequential_failed=0
+            if [[ ${#exclude_args[@]} -gt 0 ]]; then
+                find "$path" "${exclude_args[@]}" -exec chmod "${CHMOD_FLAGS[@]}" {} + 2>/dev/null || sequential_failed=1
+                find "$path" "${exclude_args[@]}" -exec chown "$OWNER_GROUP" -- {} + 2>/dev/null || sequential_failed=1
+            else
+                find "$path" -exec chmod "${CHMOD_FLAGS[@]}" {} + 2>/dev/null || sequential_failed=1
+                find "$path" -exec chown "$OWNER_GROUP" -- {} + 2>/dev/null || sequential_failed=1
+            fi
+            if [[ "$sequential_failed" -eq 1 ]]; then
+                log_err "chmod/chown failed for some paths under $path; check permissions and storage availability."
+                any_failed=1
             fi
         fi
     done

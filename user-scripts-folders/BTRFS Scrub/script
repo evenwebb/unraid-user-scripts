@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # btrfs-scrub.sh
+# Version: 1.0.1
 # Run a Btrfs scrub and optionally notify via Unraid dynamix.
 #
 # Description:
@@ -166,6 +167,7 @@ scrub_one_device() {
     fi
 
     log "Starting scrub on $SCRUB_DEVICE (log: $log_dest)"
+    local scrub_exit=0
     if btrfs scrub start -B "$SCRUB_DEVICE" >> "$log_dest" 2>&1; then
         if [[ $notify_ok -eq 1 ]]; then
             if ! "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub finished successfully" -i "normal" -m "Log: $log_dest"; then
@@ -174,9 +176,10 @@ scrub_one_device() {
         fi
         log "Scrub finished successfully on $SCRUB_DEVICE."
         return 0
+    else
+        scrub_exit=$?
     fi
 
-    local scrub_exit=$?
     if [[ $notify_ok -eq 1 ]]; then
         if ! "$NOTIFY_SCRIPT" -e "start_scrub_cache" -s "Btrfs scrub: $scrub_label" -d "Scrub failed or found errors" -i "alert" -m "Check log: $log_dest"; then
             log_err "Unraid notification could not be sent. Check NOTIFY_SCRIPT in this script."

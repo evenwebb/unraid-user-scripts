@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # disk-error-alert.sh
+# Version: 1.0.1
 # Alert on new md/storage errors in syslog.
 #
 # Description:
@@ -66,8 +67,8 @@ ENABLE_PER_DISK_TRACKING="1"
 # 1 = cross-reference disks with errors against SMART data (requires smartctl)
 ENABLE_SMART_CORRELATION="1"
 
-# Path to smartctl (usually /usr/sbin/smartctl on Unraid)
-SMARTCTL_PATH="/usr/sbin/smartctl"
+# Path to smartctl; leave empty to locate it in PATH.
+SMARTCTL_PATH=""
 
 # Optional: append logs to file (empty = stdout only)
 LOG_FILE=""
@@ -154,11 +155,15 @@ extract_disk_ids() {
 # $1 = device name (e.g. sda, nvme0n1)
 get_smart_health() {
     local dev="$1"
-    local smartctl="${SMARTCTL_PATH:-/usr/sbin/smartctl}"
-    if [[ ! -x "$smartctl" ]]; then
-        echo "  (smartctl not found)"
+    local smartctl="${SMARTCTL_PATH:-}"
+    if [[ -z "$smartctl" ]]; then
+        smartctl="$(command -v smartctl 2>/dev/null || true)"
+    fi
+    if [[ -z "$smartctl" || ! -x "$smartctl" ]]; then
+        echo "  (smartctl not found; install smartmontools or set SMARTCTL_PATH)"
         return 0
     fi
+
     local dev_path="/dev/$dev"
     if [[ ! -e "$dev_path" ]]; then
         echo "  (device $dev_path not found)"
@@ -166,19 +171,21 @@ get_smart_health() {
     fi
 
     local health raw realloc pending udma smartctl_extra
-    # Overall health status (NVMe needs -d nvme)
+    # smartctl returns a bitmask for health/command conditions; parse output regardless.
     smartctl_extra=""
     [[ "$dev_path" =~ ^/dev/nvme ]] && smartctl_extra="-d nvme"
     # shellcheck disable=SC2086
-    health=$("$smartctl" $smartctl_extra -H "$dev_path" 2>/dev/null | grep -iE 'SMART.*Health|SMART.*PASSED|SMART.*OK|overall-health.*PASSED' | head -n1 | sed 's/^[[:space:]]*//' || echo "")
+    health=$("$smartctl" $smartctl_extra -H "$dev_path" 2>/dev/null || true)
+    health=$(printf '%s\n' "$health" | grep -iE 'SMART.*Health|SMART.*PASSED|SMART.*OK|overall-health.*(PASSED|FAILED)|SMART.*FAILED' | head -n1 | sed 's/^[[:space:]]*//')
     [[ -z "$health" ]] && health="SMART status unknown"
 
     # Key attributes: Reallocated_Sector_Ct (5), Current_Pending_Sector (197), UDMA_CRC_Error_Count (199)
+    # smartctl -A can also return a nonzero health bitmask; retain any output.
     # shellcheck disable=SC2086
-    raw=$("$smartctl" $smartctl_extra -A "$dev_path" 2>/dev/null)
-    realloc=$(echo "$raw" | grep -E '^\s*(5|005)\s' | awk '{print $NF}' || echo "N/A")
-    pending=$(echo "$raw" | grep -E '^\s*(197)\s' | awk '{print $NF}' || echo "N/A")
-    udma=$(echo "$raw" | grep -E '^\s*(199)\s' | awk '{print $NF}' || echo "N/A")
+    raw=$("$smartctl" $smartctl_extra -A "$dev_path" 2>/dev/null || true)
+    realloc=$(printf '%s\n' "$raw" | grep -E '^[[:space:]]*(5|005)[[:space:]]' | awk '{print $NF}' || echo "N/A")
+    pending=$(printf '%s\n' "$raw" | grep -E '^[[:space:]]*197[[:space:]]' | awk '{print $NF}' || echo "N/A")
+    udma=$(printf '%s\n' "$raw" | grep -E '^[[:space:]]*199[[:space:]]' | awk '{print $NF}' || echo "N/A")
 
     echo "  $health | Reallocated: $realloc | Pending: $pending | UDMA CRC: $udma"
 }

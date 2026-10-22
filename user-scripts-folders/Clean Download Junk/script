@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # clean-download-junk.sh
+# Version: 1.0.1
 # Remove download junk files and empty folders (NZB, torrent, or both).
 #
 # Description:
@@ -127,7 +128,17 @@ log_err() {
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" != /* || "$p" == *$'\n'* ]] && return 1
+    return 0
+}
+
+is_safe_cleanup_path() {
+    local p="$1" resolved
+    is_safe_path "$p" || return 1
+    [[ "$p" != / && "$p" != /mnt && "$p" != /mnt/* && "$p" != /boot* ]] || return 1
+    [[ "$p" == /mnt/*/* ]] || return 1
+    resolved=$(readlink -f -- "$p" 2>/dev/null) || return 1
+    [[ "$resolved" == /mnt/*/* && "$resolved" != /boot* && "$resolved" != / ]] || return 1
     return 0
 }
 
@@ -268,13 +279,14 @@ delete_junk_files() {
         [[ -n "$arg" ]] && extra_args+=("$arg")
     done < <(_build_extra_find_args)
 
-    local count
+    local count find_rc=0
     if [[ "$DRY_RUN" == "1" ]]; then
         count=$(find "$dir" -xdev -type f "${extra_args[@]}" \( "${find_args[@]}" \) -print 2>/dev/null | wc -l)
         log "Found $count junk file(s) (dry run)"
     else
-        count=$(find "$dir" -xdev -type f "${extra_args[@]}" \( "${find_args[@]}" \) -delete -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" \( "${find_args[@]}" \) -delete -print 2>/dev/null | wc -l) || find_rc=$?
         log "Deleted $count junk file(s)"
+        [[ "$find_rc" -eq 0 ]] || return 1
     fi
 }
 
@@ -291,13 +303,14 @@ delete_sample_files() {
         [[ -n "$arg" ]] && extra_args+=("$arg")
     done < <(_build_extra_find_args)
 
-    local count
+    local count find_rc=0
     if [[ "$DRY_RUN" == "1" ]]; then
         count=$(find "$dir" -xdev -type f "${extra_args[@]}" -iname "*sample*" -print 2>/dev/null | wc -l)
         log "Found $count sample file(s) (dry run)"
     else
-        count=$(find "$dir" -xdev -type f "${extra_args[@]}" -iname "*sample*" -delete -print 2>/dev/null | wc -l)
+        count=$(find "$dir" -xdev -type f "${extra_args[@]}" -iname "*sample*" -delete -print 2>/dev/null | wc -l) || find_rc=$?
         log "Deleted $count sample file(s)"
+        [[ "$find_rc" -eq 0 ]] || return 1
     fi
 }
 
@@ -316,14 +329,8 @@ delete_sample_dirs() {
     else
         count=$(find "$dir" -xdev -type d \( -iname "sample" -o -iname "samples" \) -print 2>/dev/null | wc -l)
         if [[ $count -gt 0 ]]; then
-            local -a sample_dirs=()
-            while IFS= read -r sample_dir; do
-                [[ -n "$sample_dir" ]] && sample_dirs+=("$sample_dir")
-            done < <(find "$dir" -xdev -type d \( -iname "sample" -o -iname "samples" \) -print 2>/dev/null)
-            local sample_dir
-            for sample_dir in "${sample_dirs[@]}"; do
-                rm -rf "$sample_dir" 2>/dev/null || true
-            done
+            find "$dir" -xdev -depth -type d \( -iname "sample" -o -iname "samples" \) \
+                -exec rm -rf -- {} + 2>/dev/null || return 1
         fi
         log "Deleted $count sample director(ies)"
     fi
@@ -342,7 +349,7 @@ delete_empty_dirs() {
     if [[ "$DRY_RUN" == "1" ]]; then
         while IFS= read -r -d '' empty_dir; do
             ((total++)) || true
-        done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
+        done < <(find "$dir" -xdev -depth -type d -empty -print0 2>/dev/null || true)
         log "Found $total empty director(ies) (dry run)"
         return 0
     fi
@@ -353,7 +360,7 @@ delete_empty_dirs() {
 
         while IFS= read -r -d '' empty_dir; do
             rmdir "$empty_dir" 2>/dev/null && ((count++)) || true
-        done < <(find "$dir" -xdev -type d -empty -print0 2>/dev/null || true)
+        done < <(find "$dir" -xdev -depth -type d -empty -print0 2>/dev/null || true)
 
         [[ $count -eq 0 ]] && break
 
@@ -389,22 +396,25 @@ main() {
 
     [[ "$DRY_RUN" == "1" ]] && log "DRY-RUN: no files or directories will be deleted"
 
+    local any_failed=0
     for folder in "${ACTIVE_FOLDERS[@]}"; do
-        if ! is_safe_path "$folder"; then
-            log_err "Skipping unsafe path: $folder"
+        if ! is_safe_cleanup_path "$folder"; then
+            log_err "Skipping unsafe cleanup path (must resolve to a real subdirectory under /mnt): $folder"
+            any_failed=1
             continue
         fi
         log "Processing: $folder"
-        delete_junk_files "$folder"
-        delete_sample_files "$folder"
-        delete_sample_dirs "$folder"
-        delete_empty_dirs "$folder"
+        delete_junk_files "$folder" || any_failed=1
+        delete_sample_files "$folder" || any_failed=1
+        delete_sample_dirs "$folder" || any_failed=1
+        delete_empty_dirs "$folder" || any_failed=1
         log "Completed: $folder"
         echo ""
     done
 
     local duration=$(( $(date +%s) - start_time ))
     log "Cleanup completed in ${duration}s"
+    return "$any_failed"
 }
 
 main "$@"

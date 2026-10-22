@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # check-plex-status.sh
+# Version: 1.0.1
 # Check Plex container and web UI; restart if the UI is down.
 #
 # Description:
@@ -98,7 +99,7 @@ log_err() {
 
 # Check dependencies
 if ! command -v curl &>/dev/null; then
-    log_err "curl is required but not installed. Install with: apt-get install curl"
+    log_err "curl is required but not available in PATH. On Unraid, check the OS package set or an approved plugin/package source."
     exit 1
 fi
 if ! command -v docker &>/dev/null; then

@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # remove-os-metadata.sh
+# Version: 1.0.1
 # Remove macOS and Windows metadata files from media paths.
 #
 # Description:
@@ -113,21 +114,24 @@ build_dir_find_args() {
 is_safe_path() {
     local p="$1"
     [[ -z "$p" ]] && return 1
-    [[ "$p" == *".."* || "$p" == "-"* ]] && return 1
+    [[ "$p" == *".."* || "$p" == "-"* || "$p" != /* || "$p" == *$'\n'* ]] && return 1
     return 0
 }
 
 # Search roots must be a real subdirectory under /mnt (not /mnt itself).
 is_safe_delete_path() {
-    local p="$1"
+    local p="$1" resolved
     is_safe_path "$p" || return 1
     [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
     [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
+    [[ "$p" == /mnt/*/* ]] || return 1
+    resolved=$(readlink -f -- "$p" 2>/dev/null) || return 1
+    [[ "$resolved" == /mnt/*/* && "$resolved" != /boot* ]] || return 1
     return 0
 }
 
 main() {
-    local total_deleted=0
+    local total_deleted=0 any_failed=0
     local total_matched=0
 
     # Validate configuration
@@ -167,6 +171,7 @@ main() {
         fi
         if [[ ! -d "$base" ]]; then
             log "Skipping $base (not found)"
+            any_failed=1
             continue
         fi
 
@@ -187,7 +192,7 @@ main() {
                 if [[ "$DRY_RUN" == "1" ]]; then
                     continue
                 fi
-                rm -f "$file" 2>/dev/null && ((count++)) || true
+                if rm -f -- "$file" 2>/dev/null; then ((count++)) || true; else log_err "Failed to delete: $file"; any_failed=1; fi
             done < <(find "$base" -maxdepth "$MAX_DEPTH" "${file_find_args[@]}" -print0 2>/dev/null || true)
         fi
 
@@ -198,7 +203,7 @@ main() {
                 if [[ "$DRY_RUN" == "1" ]]; then
                     continue
                 fi
-                rm -rf "$dir" 2>/dev/null && ((count++)) || true
+                if rm -rf -- "$dir" 2>/dev/null; then ((count++)) || true; else log_err "Failed to delete: $dir"; any_failed=1; fi
             done < <(find "$base" -maxdepth "$MAX_DEPTH" "${dir_find_args[@]}" -print0 2>/dev/null || true)
         fi
 
@@ -216,6 +221,7 @@ main() {
     else
         log "Done. Total items deleted: $total_deleted"
     fi
+    return "$any_failed"
 }
 
 main "$@"

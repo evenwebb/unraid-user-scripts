@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # clear-tv-shows-download-folder.sh
+# Version: 1.0.1
 # Empty the TV shows download folder (with optional age filter).
 #
 # Description:
@@ -72,8 +73,10 @@ is_safe_path() {
 is_safe_delete_path() {
     local p="$1"
     is_safe_path "$p" || return 1
-    [[ "$p" == "/" || "$p" == "/mnt" ]] && return 1
-    [[ "$p" == "/mnt/"* ]] && [[ "$p" != "/mnt/"*/* ]] && return 1
+    [[ "$p" == "/" || "$p" == "/mnt" || "$p" != /mnt/*/* ]] && return 1
+    local resolved
+    resolved=$(readlink -f -- "$p" 2>/dev/null) || return 1
+    [[ "$resolved" == /mnt/*/* && "$resolved" != /boot* ]] || return 1
     return 0
 }
 
@@ -104,9 +107,11 @@ clear_directory_top_level() {
     if [[ "$MIN_AGE_MINUTES" -gt 0 ]] && [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
         age_args=(-mmin "+${MIN_AGE_MINUTES}")
     fi
+    local failed=0
     while IFS= read -r -d '' item; do
-        rm -rf -- "$item"
+        rm -rf -- "$item" || { log_err "Failed to delete: $item"; failed=1; }
     done < <(find "$dir" -mindepth 1 -maxdepth 1 "${age_args[@]}" -print0 2>/dev/null)
+    return "$failed"
 }
 
 main() {
@@ -136,8 +141,8 @@ main() {
     if [[ "$MIN_AGE_MINUTES" -gt 0 ]]; then
         age_args=(-mmin "+${MIN_AGE_MINUTES}")
     fi
-    before_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 "${age_args[@]}" 2>/dev/null | wc -l | tr -d ' ')
-    before_bytes=$(du -sb "$DIR_PATH" 2>/dev/null | awk '{print $1}')
+    before_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 "${age_args[@]}" -print0 2>/dev/null | tr -cd '\0' | wc -c | tr -d ' ')
+    before_bytes=$(du -s -B1 "$DIR_PATH" 2>/dev/null | awk '{print $1}')
     [[ -z "$before_bytes" || ! "$before_bytes" =~ ^[0-9]+$ ]] && before_bytes=0
 
     if [[ "$DRY_RUN" == "1" ]]; then
@@ -149,8 +154,8 @@ main() {
 
     clear_directory_top_level "$DIR_PATH" || { log_err "clear failed for $DIR_PATH"; return 1; }
 
-    after_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-    after_bytes=$(du -sb "$DIR_PATH" 2>/dev/null | awk '{print $1}')
+    after_count=$(find "$DIR_PATH" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | tr -cd '\0' | wc -c | tr -d ' ')
+    after_bytes=$(du -s -B1 "$DIR_PATH" 2>/dev/null | awk '{print $1}')
     [[ -z "$after_bytes" || ! "$after_bytes" =~ ^[0-9]+$ ]] && after_bytes=0
     deleted_count=$((before_count - after_count))
     freed_bytes=$((before_bytes - after_bytes))

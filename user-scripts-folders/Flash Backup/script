@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # flash-backup.sh
+# Version: 1.0.1
 # Backup the Unraid boot flash drive to compressed archives on the array.
 #
 # Description:
@@ -169,14 +170,14 @@ main() {
         *) log_err "COMPRESSION must be gzip, bzip2, xz, or none."; return 1 ;;
     esac
 
-    if [[ ! -d "/boot" ]]; then
+    if [[ ! -d "/boot" ]] || ! mountpoint -q -- /boot; then
         log_err "/boot not mounted (flash drive not found)."
         return 1
     fi
 
     # Require destination to NOT be on /boot itself
     local dest_real
-    dest_real=$(readlink -f "$BACKUP_DEST" 2>/dev/null || echo "$BACKUP_DEST")
+    dest_real=$(readlink -m -- "$BACKUP_DEST" 2>/dev/null || echo "$BACKUP_DEST")
     if [[ "$dest_real" == "/boot" || "$dest_real" == "/boot/"* ]]; then
         log_err "BACKUP_DEST must not be on the flash drive itself."
         return 1
@@ -199,12 +200,14 @@ main() {
     fi
 
     mkdir -p "$BACKUP_DEST" 2>/dev/null || { log_err "Cannot create backup destination: $BACKUP_DEST"; return 1; }
+    dest_real=$(readlink -f -- "$BACKUP_DEST" 2>/dev/null) || { log_err "Cannot resolve backup destination: $BACKUP_DEST"; return 1; }
+    [[ "$dest_real" != /boot && "$dest_real" != /boot/* ]] || { log_err "BACKUP_DEST resolves onto the flash drive: $dest_real"; return 1; }
 
     local timestamp comp_flag comp_ext backup_name backup_path
     timestamp=$(date '+%Y%m%d-%H%M%S')
     comp_flag=$(get_compression_flag)
     comp_ext=$(get_compression_ext)
-    backup_name="unraid-flash-backup-${timestamp}.tar${comp_ext}"
+    backup_name="unraid-flash-backup-${timestamp}-$$.tar${comp_ext}"
     backup_path="${BACKUP_DEST}/${backup_name}"
 
     log "Starting flash backup to: $backup_path"
@@ -212,14 +215,14 @@ main() {
     # Build tar exclusions
     local exclude_args=()
     if [[ "$EXCLUDE_LOGS" == "1" ]]; then
-        exclude_args+=(--exclude="/boot/logs")
+        exclude_args+=(--exclude="boot/logs")
     fi
     if [[ "$EXCLUDE_PREVIOUS_BACKUPS" == "1" ]]; then
         # Exclude the backup destination from the archive if it's under /mnt
-        [[ "$BACKUP_DEST" == "/mnt/"* ]] && exclude_args+=(--exclude="${BACKUP_DEST}")
+        [[ "$BACKUP_DEST" == "/mnt/"* ]] && exclude_args+=(--exclude="${BACKUP_DEST#/}")
     fi
     # Always exclude transient/runtime files
-    exclude_args+=(--exclude="/boot/EFI")
+    exclude_args+=(--exclude="boot/EFI")
 
     local start_time size_before size_after duration exit_code tar_err
     start_time=$(date +%s)
@@ -274,8 +277,10 @@ main() {
         else
             tar -tf "$backup_path" >/dev/null 2>&1
         fi
-        if [[ $? -ne 0 ]]; then
+        local verify_rc=$?
+        if [[ $verify_rc -ne 0 ]]; then
             log_err "Backup verification FAILED for $backup_path"
+            rm -f -- "$backup_path"
             send_unraid_notify "Flash Backup" "Flash backup verification failed" \
                 "Backup archive $backup_name failed integrity check. The backup may be corrupt." \
                 "alert"

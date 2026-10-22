@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # user-scripts-updater.sh
+# Version: 1.0.1
 # Update User Scripts plugin folders from GitHub while keeping your config edits.
 #
 # Description:
@@ -694,8 +695,14 @@ backup_file() {
   base="$(basename "$src")"
   stamp="$(date +%Y%m%d-%H%M%S)"
   out_dir="$BACKUP_DIR/$rel"
-  mkdir -p "$out_dir" 2>/dev/null || true
-  cp "$src" "$out_dir/$base.$stamp.bak"
+  if ! mkdir -p "$out_dir" 2>/dev/null; then
+    log_err "Could not create backup directory: $out_dir"
+    return 1
+  fi
+  if ! cp -p "$src" "$out_dir/$base.$stamp.bak"; then
+    log_err "Could not back up $src to $out_dir; destination will not be replaced."
+    return 1
+  fi
   if [[ "$BACKUP_KEEP_COUNT" =~ ^[0-9]+$ ]] && [[ "$BACKUP_KEEP_COUNT" -gt 0 ]]; then
     local old_backups count
     old_backups=$(find "$out_dir" -maxdepth 1 -name "$base.*.bak" -type f 2>/dev/null | sort -r)
@@ -706,6 +713,7 @@ backup_file() {
       [[ $count -gt $BACKUP_KEEP_COUNT ]] && rm -f "$f"
     done <<< "$old_backups"
   fi
+  return 0
 }
 
 script_is_user_scripts_updater() {
@@ -968,7 +976,10 @@ sync_one_folder() {
   fi
 
   if [[ "$DRY_RUN" == "0" && -f "$dest_script" ]]; then
-    backup_file "$dest_script" "$(basename "$dest_folder")"
+    backup_file "$dest_script" "$(basename "$dest_folder")" || {
+      rm -f "$merged"
+      return 1
+    }
   fi
 
   if [[ "$DRY_RUN" == "0" ]]; then
