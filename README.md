@@ -114,12 +114,6 @@ Folders [auto-sync on push to `main`](.github/workflows/sync-user-scripts-folder
 | **server-info-push.sh** | Notification with space, temps, load, VMs, and containers |
 | **user-scripts-updater.sh** | Update all User Scripts from GitHub; keeps your settings |
 
-### Unraid Path Guard
-
-`unraid-path-guard.sh` only reports findings; it does not change shares, folders, files, or Docker. Before scheduling it, review the settings at the top of the script: defaults assume appdata is mounted at `/mnt/appdata`, Docker data is under `/mnt/appdata/docker`, and `/mnt/user/appdata` is unwanted. The first run records current folder baselines in `STATE_DIR`; `--accept-current` replaces those snapshots when run manually.
-
----
-
 ## 📦 Dependencies
 
 | Dependency | Scripts |
